@@ -331,23 +331,26 @@
 		char* param[20];
 		int length;
 	} post;
-	post parse_post_params(char* header) {
+	int parse_post_params(char* header) {
 		post p;
 		printf("We here\n");
-		int i = 0, n = 0, j = 0;
-		char* c;
+		int i = 0,  j = 0;
+		char* c = header;
 		for( i = 0; i<=19; i++ ) {
 			p.param[i] = malloc(128);
 			while( *c != '\n' ) {
 				p.param[i][j] = *c;
+				printf("%c", *c);
 				j++;
 				c++;
 			}
+			c++;
 			
-			if( p.param[i][0] == '\n' ) n = ++i;
+			j=0;
+			//if( p.param[i][0] == '\n' ) n = ++i;
 		}
-		printf("Params: %s\n", p.param[n]);
-		return p;
+		
+		return 0;
 	}	
 		
 		
