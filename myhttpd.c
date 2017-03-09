@@ -16,8 +16,11 @@
 #define MAXEVENTS 64
 #define PORT 7771
 #define FILE_SIZEBUFFER_LENGTH 9
+#define _ROOT_ "/home/abyss4me/Myhttpd"
 
-
+    char ROOT_DIR[512];
+    //bzero(ROOT_DIR, 512);
+    //strcpy(ROOT_DIR, _ROOT_);
 	void sig_handler(int sign);    /* signal handler prototype function */
 	int ns, nport, nbytes;
     int on = 1;
@@ -72,6 +75,9 @@
 			}
 		}	
 		else { free(file_name); return NULL; }
+		if( strcmp(f, "") == 0 ) {					/* if start page is not specified in URL */
+			strcpy(f, "index.html");				/* default start page "index.html" as usual */
+		}
 		return f;
 	}
 	
@@ -152,12 +158,12 @@
 		sprintf(length, "%d", f_size);
 		char head_p1[] = "HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Type: text/html; charset=utf-8";
 		char head_p2[] = "\r\nContent-Length: ";
-		char head_p3[] = "\r\nConnection: close\r\n\r\n"; 
+		char head_p3[] = "\r\nConnection: keep-alive\r\n\r\n"; 
 		send(socket, head_p1, sizeof(head_p1), 0);
 		printf("%s",head_p1);
 		strcat(head_p2, length);
 		int i = 0;
-		while( head_p2[i] != '\0' ) {      								/* count string size ( may be should to make separate function) */ 		
+		while( head_p2[i] != '\0' ) {      		/* count string size ( may be should to make separate function) */ 		
 			i++;
 		}
 		send(socket, head_p2, i, 0);
@@ -179,35 +185,30 @@
 			 }
 			 p++;
 		 }
-		 p++; 															/* now p -> points to beginning of result */
+		 p++; 									/* now p -> points to beginning of result */
 		 return p;	 
 	}
 	
-	int php_cgi(char *header, int socket) {
-																		/* example */
-																		/* GET /submit.php?login=hello+world HTTP/1.1 */
+	int php_cgi(char *header, char* post_param, int length, int socket) {
+												/* example */
+												/* GET /submit.php?login=hello+world HTTP/1.1 */
 		pid_t pid;
 		int status;
 		char filename[64];
 		char parameter[1024];
+		char buf[1];
+		char query_string[1024];
+		char script_filename[1024];
+		bzero(query_string, 1024);
 		bzero(parameter, 1024);
 		bzero(filename, 64);
+		bzero(buf, 2);
 		int i = 0;
 		char full_filename[1024];
 		bzero(full_filename, 1024);
 		
-		char *p = strstr(header, "GET");
-		if( p != NULL ) {
-			p = strchr(header, '/');
-			p++;
-			if( p != NULL ) {
-				while( *p != 32 ) {
-					if( *p == '?' ) break;
-					filename[i] = *p;
-					p++;
-					i++;
-				}
-				p = strchr(header, '?');
+		
+				char* p = strchr(header, '?');		/* extract string of parameters */
 				if( p != NULL ) {
 					p++;
 					i = 0;
@@ -218,61 +219,82 @@
 					}
 				}
 				else {
-					strcpy(parameter, "");
+					strcpy(parameter, "");   	/* if there are no parameters, pass an empty string instead */
 				}				
-			}
-		}
+		
 		
 		strcpy(full_filename, get_rootdir());    /* do not forget to FREE memory */
 		strcat(full_filename, "/");
-		strcat(full_filename, filename);
-		printf("%s\n",full_filename);
-		char buf[1];
-		char query_string[1024];
-		char script_filename[1024];
-		bzero(query_string, 1024);
-		bzero(buf, 2);
+		strcat(full_filename, parse_head_for_filename(header));
+		char s_length[6];
+		sprintf(s_length, "%d", length);
+		printf("%s\n",s_length);	
 		strcpy(query_string, "QUERY_STRING=");
-		strcat(query_string, parameter);
+		if( post_param != NULL) {
+			strcat(query_string, post_param);
+			//printf("POST %s\n",query_string);
+		} 
+		else {
+			strcat(query_string, parameter);
+			//printf("GET %s\n",query_string);
+		}
 		strcpy(script_filename, "SCRIPT_FILENAME=");
 		strcat(script_filename, full_filename);
-		int fd[2], fd2[2];    											/* fd - pipe for output of result by php-cgi,*/
-		if( (pipe(fd) != 0) || (pipe(fd2) != 0) )						/* fd2 - pipe for output of errors */
+		int fd[2], fd2[2];// fd3[2];    									/* fd - pipe for output of result by php-cgi,*/
+		if( (pipe(fd) != 0) || (pipe(fd2) != 0) )				/* fd2 - pipe for output of errors */
 			printf("pipes creation error!\n");							
 		if( (pid = fork()) != -1 ) {
 			if( pid == 0 ) {
+				//dup2(fd3[0],STDIN_FILENO);
+				//close(fd3[0]);
+				dup2(fd[1], STDOUT_FILENO);						/* redirect stdout to --> pipe write */
+				dup2(fd2[1], STDERR_FILENO);					/* redirect stderr to --> pipe write */
+				//if( strcmp(query_string, "") != 0 ) {   		/* if we call .php script with global POST and GET vars, then set environment's vars */ 
+					  
+					 //putenv("SCRIPT_NAME=submit.php");
+					 //putenv("REQUEST_METHOD=POST");
+					 
+					 //putenv("CONTENT_LENGTH=17");
+					 //putenv("SERVER_NAME=localhost:7771");
+					 //putenv("REQUEST_URI=login.html");
+					 
 				
-				dup2(fd[1], STDOUT_FILENO);								/* redirect stdout to --> pipe write */
-				dup2(fd2[1], STDERR_FILENO);							/* redirect stderr to --> pipe write */
-				if( strcmp(query_string, "") != 0 ) {   				/* if we call .php script with global POST and GET vars, then set environment's vars */ 
-					putenv(query_string);		
-					putenv("REDIRECT_STATUS=true");
-					putenv("GATEWAY_INTERFACE=CGI/1.1");
-					//putenv("REQUEST_METHOD=GET");
-				}
+				//}
+				 
 				if( parse_for_method(header) ) {
-						putenv("REQUEST_METHOD=POST");
+						if( -1 == execl("/home/abyss4me/Myhttpd/cgi.sh", "cgi.sh", post_param, s_length, "POST",  (char*)NULL)) /* calling php-cgi process */
+					       printf("%s\n","execl error\n");	
 					}
 					else {
+						putenv("GATEWAY_INTERFACE=CGI/1.1");
+					 putenv("SERVER_PROTOCOL=HTTP/1.1");
+					 putenv(query_string);
+					 putenv(script_filename);
 						putenv("REQUEST_METHOD=GET");
+						putenv("REDIRECT_STATUS=200");
+						putenv("HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+					 putenv("CONTENT_TYPE=application/x-www-form-urlencoded");
+						if( -1 == execl("/usr/bin/php-cgi", "php-cgi",  (char*)NULL)) /* calling php-cgi process */
+					printf("%s\n","execl error\n");	
 				}
-                putenv("SERVER_PROTOCOL=HTTP/1.1");
-                putenv("HTTP_ACCEPT_CHARSET=ISO-8859-1,utf-8;q=0.7,*;q=0.7");             
-                putenv(script_filename); 
-                //fcntl(fd[1], F_SETFL, O_NONBLOCK); 						
-				if( -1 == execl("/usr/bin/php-cgi", "php-cgi", "-l",  (char*)NULL)) /* calling php-cgi process */
-					printf("%s\n","execl error\n");				
+                	
+                
+							
 				close(fd[1]);
 				close(fd[0]);				
 				close(fd2[1]);
-				close(fd2[0]);				
+				close(fd2[0]);
+								
 			}
 			else {	
 				close(fd[1]);
 				close(fd2[1]);
+				//close(fd3[0]);
+				//write(fd3[1],"login=hello+world",17);
+				//close(fd3[1]);
 				int i = 0;
 				int n = 0;
-				char *mem = malloc(1000000); 							/* allocating 1MB of memory for php-cgi output result */
+				char *mem = malloc(1000000); 					/* allocating 1MB of memory for php-cgi output result */
 				if( mem == NULL ) {
 					perror("can't allocate memory: ");
 					return 0;
@@ -280,14 +302,14 @@
 				char *p = mem;
 				char *p_f = mem;
 				bzero(mem, 1000000);	
-				while( (n = read(fd[0], buf, 1)) > 0 ) { 				/* reading result from pipe --> memory */
+				while( (n = read(fd[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
 					//printf("%c\n", *mem);	
 					i++;
 				}	
 				//if( i > 0 )	{	
-				while( (n = read(fd2[0], buf, 1)) > 0 ) { 				/* reading result from pipe --> memory */
+				while( (n = read(fd2[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
 					//printf("%c\n", *mem);	
@@ -302,7 +324,7 @@
 					send_header(filename, i, socket);
 						 					/* send header */
 					while( i != 0 ) {
-						send(socket, p, 1, 0);		     					/* send result one-by-one */
+						send(socket, p, 1, 0);		     		/* send result one-by-one */
 						p++;
 						i--;
 					}
@@ -311,7 +333,7 @@
 					send_header(filename, i, socket);
 					p = p_f;
 					while( i != 0 ) {
-						send(socket, p, 1, 0);		     					/* send result one-by-one */
+						send(socket, p, 1, 0);		     		/* send result one-by-one */
 				     	p++;
 						i--;
 					}
@@ -417,7 +439,7 @@
     
     int main(int argc, char* argv[]) {
         int nport = PORT; 
-        //nport = atoi("127.0.0.1");								/* get number of port from command line as a parameter  */
+        //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
                    					/* thread  */
                          					/* holds thread args */
         socklen_t addrlen;
@@ -521,24 +543,60 @@
 							else {
 								    int done = 0;
 								    ssize_t count;
-									char buf[2048];
-									bzero(buf, sizeof(buf));
-									count = read(events[i].data.fd, buf, sizeof buf);
+									char buf[4096];
+									bzero(buf, sizeof(buf));		
+									while ((count = read(events[i].data.fd, buf, 4096)) > 0) {
 									printf("%s\n",buf);
-									char *f_name = parse_head_for_filename(buf);	
-									if ( f_name != NULL) {
-									//printf("%s", f_name);
-										if (check_content_type(f_name) == 1) {
-											read_html_file(f_name, buf, events[i].data.fd);
+									static int post_flag = 0;
+									char aux_buf[4096];
+									if( (parse_for_method(buf) == 1) || (post_flag == 1) )   /* Catch POST request */ {
+										char *p = strstr(buf, "Content-Length:");			 /* As I've mentioned WEB browser sends POST head */
+										static int length = 0;								 /* and POST body separately */
+										post_flag = 1;										 /* this piece of code catch POST header first */
+										if( p != NULL ) {							         /* then catch POST body 2th cycle */
+											while( *p != 32 ) {                            /* post_flag is needed to determine second request from browser with message body */
+												p++;										 
+											}
+											p++;
+											length = atoi(p);
+											
+											bzero(aux_buf, 4096);
+											strcpy(aux_buf, buf);
+												
+											//else close(events[i].data.fd);
+											bzero(buf, sizeof(buf));		
 										}
-										else if( check_content_type(f_name) == 0 ) {
-											read_media_file(f_name, buf, events[i].data.fd);
-										}
-										else if( check_content_type(f_name) == 2 ) {
-											php_cgi(buf, events[i].data.fd);
-										}   
+										else {
+											char *f_name = parse_head_for_filename(aux_buf);	
+											if ( f_name != NULL) {
+												if( check_content_type(f_name) == 2 ) {
+													php_cgi(aux_buf, buf, length, events[i].data.fd);   /* ADD to php_cgi char* param !!!!! */
+												}  
+											} 	
+											//read(events[i].data.fd, buf, 4096);           /* this code executes only when post_flg set to 0
+											post_flag = 0;									/*   this means that next request (after POST head) from browser */
+											//printf("%s\n",buf);								/*   goes with message (POST parameters) in single string */
+											bzero(buf, sizeof(buf));						/*   for ex. login=hello+world */
+										}													
 									}
-									else close(events[i].data.fd);
+									else {
+										char *f_name = parse_head_for_filename(buf);	
+										if ( f_name != NULL) {
+										//printf("%s", f_name);
+											if (check_content_type(f_name) == 1) {
+												read_html_file(f_name, buf, events[i].data.fd);
+											}
+											else if( check_content_type(f_name) == 0 ) {
+												read_media_file(f_name, buf, events[i].data.fd);
+											}
+											else if( check_content_type(f_name) == 2 ) {
+												php_cgi(buf, NULL, 0, events[i].data.fd);
+											}  
+										} 		
+										else close(events[i].data.fd);
+									bzero(buf, sizeof(buf));
+								}
+								}
 									if( count == -1 ) {
 										  /* If errno == EAGAIN, that means we have read all
 											 data. So go back to the main loop. */
