@@ -21,4 +21,4 @@ if [ $3 = "POST" ]; then
 else
     exit  
 fi
-echo $arg | /usr/bin/php-cgi
+echo $arg | /usr/bin/php5-cgi

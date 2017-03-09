@@ -265,7 +265,7 @@
 						putenv("REDIRECT_STATUS=200");
 						putenv("HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 						putenv("CONTENT_TYPE=application/x-www-form-urlencoded");
-						if( -1 == execl("/usr/bin/php-cgi", "php-cgi",  (char*)NULL))   /* calling php-cgi process */
+						if( -1 == execl("/usr/bin/php5-cgi", "php5-cgi",  (char*)NULL))   /* calling php-cgi process */
 							perror("execl error: ");	
 				}	
 				close(fd[1]);
@@ -326,6 +326,30 @@
 		}
 		return 0;
 	}
+	
+	typedef struct s_post {
+		char* param[20];
+		int length;
+	} post;
+	post parse_post_params(char* header) {
+		post p;
+		printf("We here\n");
+		int i = 0, n = 0, j = 0;
+		char* c;
+		for( i = 0; i<=19; i++ ) {
+			p.param[i] = malloc(128);
+			while( *c != '\n' ) {
+				p.param[i][j] = *c;
+				j++;
+				c++;
+			}
+			
+			if( p.param[i][0] == '\n' ) n = ++i;
+		}
+		printf("Params: %s\n", p.param[n]);
+		return p;
+	}	
+		
 		
 	int read_media_file(char* filename, char* header, int socket) {
 		FILE* f;
@@ -521,6 +545,8 @@
 									bzero(buf, sizeof(buf));		
 									while ((count = read(events[i].data.fd, buf, 4096)) > 0) {
 									printf("%s\n",buf);
+									if( parse_for_method(buf) == 1)
+										parse_post_params(buf);
 									static int post_flag = 0;
 									char aux_buf[4096];
 									if( (parse_for_method(buf) == 1) || (post_flag == 1) )   /* Catch POST request */ {
@@ -559,6 +585,7 @@
 												read_media_file(f_name, buf, events[i].data.fd);
 											}
 											else if( check_content_type(f_name) == 2 ) {
+												
 												php_cgi(buf, NULL, 0, events[i].data.fd);
 											}  
 											else if( check_content_type(f_name) == 3 ) {
