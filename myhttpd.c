@@ -14,13 +14,10 @@
 #include <sys/wait.h>
 
 #define MAXEVENTS 64
-#define PORT 7771
 #define FILE_SIZEBUFFER_LENGTH 9
-#define _ROOT_ "/home/abyss4me/Myhttpd"
 
-    char ROOT_DIR[512];
-    //bzero(ROOT_DIR, 512);
-    //strcpy(ROOT_DIR, _ROOT_);
+    static int PORT;
+    static char _ROOT_DIR_[256];
 	void sig_handler(int sign);    /* signal handler prototype function */
 	int ns, nport, nbytes;
     int on = 1;
@@ -28,6 +25,50 @@
 	int sd, efd, clientsd, fd;
 	struct epoll_event event;
     struct epoll_event *events;
+    
+    void read_configuration() {
+		char buf[256];
+		int n_lines = 4 ;   								/* initial size */
+		char* arg[n_lines];
+		bzero(buf, 256);
+		int i = 0;
+		FILE* f = fopen("http.conf", "r");
+		if( f == NULL ) {
+			perror("can't open configuration file or file missing ");
+			exit(1);
+		}
+		do {											/* loop - read all lines of file and store them in array of strings */
+			arg[i] = malloc(64);						/* allocate memory 64 bytes for each line and store pointer in array */
+			fgets(arg[i], 64, f);
+			i++;
+		} while( !feof(f));
+		/* now let's parse each string */
+		char *p;
+		for( i=0; i<=n_lines; i++) {
+			
+			if( arg[i][0] == '#' ) continue;
+			if( (p = strstr(arg[i], "PORT")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					PORT = atoi(p);
+				}
+			}
+			if( (p = strstr(arg[i], "ROOT_DIR")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_ROOT_DIR_, p);
+					p = strchr(_ROOT_DIR_, '\n');        /* remove EOL */
+					*p = '\0';
+				}
+			}	
+		}
+		for( i=0; i<=n_lines+1; i++)					/* free memory */
+			free(arg[i]);
+		fclose(f);
+	}
+    
     
     void not_found(int socket) {   
 		char not_found[] = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 100\r\n\r\n \
@@ -212,7 +253,7 @@
 		bzero(filename, 64);
 		bzero(buf, 2);
 		int i = 0;
-		char full_filename[1024];
+		char full_filename[256];
 		bzero(full_filename, 1024);
 				char* p = strchr(header, '?');		/* extract string of parameters */
 				if( p != NULL ) {
@@ -227,10 +268,11 @@
 				else {
 					strcpy(parameter, "");   	/* if there are no parameters, pass an empty string instead */
 				}					
-		strcpy(full_filename, get_rootdir());    /* do not forget to FREE memory */
+		strcpy(full_filename, _ROOT_DIR_ /*get_rootdir()*/);    /* do not forget to FREE memory */
 		strcat(full_filename, "/");
 		strcat(full_filename, parse_head_for_filename(header));
 		/* check for file existence */
+		printf("%s\n", full_filename);
 		FILE *f = fopen(full_filename, "r");
 		if( f == NULL ) {						/* if file doesn't exist then send 404 Error */
 			not_found(socket);
@@ -414,7 +456,8 @@
 	}
     
     int main(int argc, char* argv[]) {
-        int nport = PORT; 
+        read_configuration();
+        //printf("%s", _ROOT_DIR_);
         //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
                    					/* thread  */
                          					/* holds thread args */
@@ -425,7 +468,7 @@
         serv_addr.sin6_family = AF_INET6; 						/* support ipv6 */
         //serv_addr.sin_addr.s_addr = INADDR_ANY; 				/* only for ipv4 */
         serv_addr.sin6_addr = in6addr_any; 
-        serv_addr.sin6_port = htons(nport);
+        serv_addr.sin6_port = htons(PORT);
         serv_addr.sin6_scope_id = 5;
         if( (sd = socket(AF_INET6, SOCK_STREAM, 0)) == -1 ) {	/* AF_INET6 socket is supported, compatible with ipv4 */
             perror("error calling socket()"); 					/* socket accepts both ipv4 and ipv6 conectionы. ::1 - localhost in ipv6 */
