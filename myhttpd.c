@@ -211,7 +211,7 @@
 		free(filename);
 	}
 	
-	char* get_rootdir() {
+	char* get_server_rootdir() {
 		char *path = malloc(1024);
 		bzero(path, 1024);
 		getcwd(path, 1024);
@@ -269,6 +269,7 @@
 		char query_string[1024];
 		char script_filename[1024];
 		char s_length[6];						/* buffer to store string representation of Content-length */
+		char cgi_script[256];
 		bzero(s_length, 6);
 		bzero(query_string, 1024);
 		bzero(parameter, 1024);
@@ -314,10 +315,13 @@
 			if( pid == 0 ) {
 				dup2(fd[1], STDOUT_FILENO);						/* redirect stdout to --> pipe write */
 				dup2(fd2[1], STDERR_FILENO);					/* redirect stderr to --> pipe write */
-				//if( strcmp(query_string, "") != 0 ) {   		/* if we call .php script with global POST and GET vars, then set environment's vars */ 
-			
+				               		/* if we call .php script with global POST and GET vars, then set environment's vars */ 
+			    
 				if( parse_for_method(header) ) {
-						if( -1 == execl("/home/abyss4me/Myhttpd/cgi.sh", "cgi.sh", post_param, s_length, "POST", full_filename,  (char*)NULL)) /* calling php-cgi process */
+					    strcpy(cgi_script, get_server_rootdir());
+					    strcat(cgi_script, "/cgi.sh");
+						if( -1 == execl(cgi_script, "cgi.sh", post_param, s_length, "POST", full_filename, _PHP_CGI_PATH_, 
+													(char*)NULL)) /* calling php-cgi process */
 					       perror("execl error: ");	
 					}
 					else {
