@@ -1,0 +1,2 @@
+1. fix not parted POST query from browser ( not always it comes separately head from body )
+2. add possibility to choose cgi engine in http.conf
