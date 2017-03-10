@@ -7,6 +7,8 @@ arg=$1              ###### POST - param string
 length=$2           ###### CONTENT_LENGTH
 method=$3           ###### REQUEST_METHOD identificator
 script_path=$4      ###### SCRIPT_FILENAME exmp: "/home/abyss4me/Myhttpd/submit.php"
+php_cgi_path=$5     ###### php-cgi path to
+  
 export GATEWAY_INTERFACE="CGI/1.1"
 export SERVER_PROTOCOL="HTTP/1.1"
 export SCRIPT_FILENAME=$script_path
@@ -21,4 +23,4 @@ if [ $3 = "POST" ]; then
 else
     exit  
 fi
-echo $arg | /usr/bin/php-cgi
+echo $arg | $5
