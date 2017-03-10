@@ -13,11 +13,14 @@
 #include <errno.h>
 #include <sys/wait.h>
 
+#define CONFIG_FILE "httpd.conf"
 #define MAXEVENTS 64
 #define FILE_SIZEBUFFER_LENGTH 9
 
     static int PORT;
     static char _ROOT_DIR_[256];
+    static char _PHP_CGI_[256];
+    static char _PHP_CGI_PATH_[256];
 	void sig_handler(int sign);    /* signal handler prototype function */
 	int ns, nport, nbytes;
     int on = 1;
@@ -28,11 +31,11 @@
     
     void read_configuration() {
 		char buf[256];
-		int n_lines = 4 ;   								/* initial size */
+		int n_lines = 6 ;   								/* initial size */
 		char* arg[n_lines];
 		bzero(buf, 256);
 		int i = 0;
-		FILE* f = fopen("http.conf", "r");
+		FILE* f = fopen(CONFIG_FILE, "r");
 		if( f == NULL ) {
 			perror("can't open configuration file or file missing ");
 			exit(1);
@@ -63,6 +66,25 @@
 					*p = '\0';
 				}
 			}	
+			if( (p = strstr(arg[i], "PHP_CGI")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_PHP_CGI_, p);
+					p = strchr(_PHP_CGI_, '\n');        /* remove EOL */
+					*p = '\0';
+				}
+			}	
+			if( (p = strstr(arg[i], "PHP_CGI_PATH")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_PHP_CGI_PATH_, p);
+					p = strchr(_PHP_CGI_PATH_, '\n');        /* remove EOL */
+					*p = '\0';
+				}
+			}	
+			
 		}
 		for( i=0; i<=n_lines+1; i++)					/* free memory */
 			free(arg[i]);
@@ -307,7 +329,7 @@
 						putenv("REDIRECT_STATUS=200");
 						putenv("HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 						putenv("CONTENT_TYPE=application/x-www-form-urlencoded");
-						if( -1 == execl("/usr/bin/php-cgi", "php-cgi",  (char*)NULL))   /* calling php-cgi process */
+						if( -1 == execl(_PHP_CGI_PATH_, _PHP_CGI_,  (char*)NULL))   /* calling php-cgi process */
 							perror("execl error: ");	
 				}	
 				close(fd[1]);
