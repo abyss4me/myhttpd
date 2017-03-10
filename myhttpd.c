@@ -327,28 +327,42 @@
 		return 0;
 	}
 	
-	typedef struct s_post {
-		char* param[20];
-		int length;
-	} post;
+	typedef struct {
+	char post_param[1024];
+	int length;
+} post;
+
 	int parse_post_params(char* header) {
-		post p;
-		printf("We here\n");
-		int i = 0,  j = 0;
-		char* c = header;
-		for( i = 0; i<=19; i++ ) {
-			p.param[i] = malloc(128);
-			while( *c != '\n' ) {
-				p.param[i][j] = *c;
-				printf("%c", *c);
-				j++;
-				c++;
-			}
+		int i = 0;
+	post p;
+	char *ar[10];
+	char param[64];
+	char *c = header;
+	int j = 0, flag = 0;
+	for( i = 0; i <= 32; i++ ) {
+		ar[i] = malloc(1024);
+		do  {
+			ar[i][j] = *c;
+			if( ar[i][0] == '\n' ) { flag = 1; break; }
 			c++;
-			
-			j=0;
-			//if( p.param[i][0] == '\n' ) n = ++i;
-		}
+			j++;
+		} while( *c != '\n' );
+		c++;
+		j = 0;
+		if( flag ) { strcpy(param, c); break;}	
+	}
+	
+	for( i = 0; i <= 32; i++ ) {
+		if( strstr(ar[i], "Content-Length:") != NULL ) {
+			c = strchr(ar[i], 32);
+			c++;
+			int n = atoi(c);
+			p.length = n;
+			printf("%d\n", n); 
+			break;
+		}		
+	}
+	strcpy(p.post_param, param);
 		
 		return 0;
 	}	
