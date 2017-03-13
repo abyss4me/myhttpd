@@ -12,22 +12,21 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
 #define CONFIG_FILE "httpd.conf"
 #define MAXEVENTS 64
 #define FILE_SIZEBUFFER_LENGTH 9
-
+void* thread_func(void* arg);
     static int PORT;
     static char _ROOT_DIR_[256];
     static char _PHP_CGI_[256];
     static char _PHP_CGI_PATH_[256];
 	void sig_handler(int sign);    /* signal handler prototype function */
-	int ns, nport, nbytes;
+	int nport, nbytes;
     int on = 1;
-
-	int sd, efd, clientsd, fd;
-	struct epoll_event event;
-    struct epoll_event *events;
+    int sd;
+	
     
     void read_configuration() {
 		char buf[256];
@@ -295,7 +294,7 @@
 		strcat(full_filename, "/");
 		strcat(full_filename, parse_head_for_filename(header));
 		/* check for file existence */
-		printf("%s\n", full_filename);
+		//printf("%s\n", full_filename);
 		FILE *f = fopen(full_filename, "r");
 		if( f == NULL ) {						/* if file doesn't exist then send 404 Error */
 			not_found(socket);
@@ -487,8 +486,8 @@
         //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
                    					/* thread  */
                          					/* holds thread args */
-        socklen_t addrlen;
-        struct sockaddr_in6 serv_addr, clnt_addr;
+        //socklen_t addrlen;
+        struct sockaddr_in6 serv_addr;
         struct hostent;
         bzero(&serv_addr, sizeof(serv_addr));
         serv_addr.sin6_family = AF_INET6; 						/* support ipv6 */
@@ -520,7 +519,7 @@
             exit(EXIT_FAILURE);
         }
         printf("Server is ready, waiting fo connection...\n");   /* send ready prompt to the client */
-        if( listen(sd, 5) == -1 ) {
+        if( listen(sd, 50) == -1 ) {
             perror("error calling listen()"); 
             close(sd);
             exit(EXIT_FAILURE);
@@ -528,20 +527,45 @@
        
         signal(SIGINT, sig_handler); 				/* set signal handler */
             
-         efd = epoll_create(5);
+        
+         pthread_t thread_1, thread_2;
+         pthread_attr_t attr;
+         pthread_attr_init(&attr);
+         int ret = pthread_create(&thread_1, &attr, &thread_func, &sd);
+         if( ret != 0 ) {
+			 perror("thread creating error:");
+			 exit(1);
+		 }
+		 ret = pthread_create(&thread_2, &attr, &thread_func, &sd);
+         if( ret != 0 ) {
+			 perror("thread creating error:");
+			 exit(1);
+		 }
+		 pthread_join(thread_1, NULL);
+		 pthread_join(thread_2, NULL);
+		 
+	 }
+	void* thread_func(void* arg) {
+		int ns, efd;
+		struct epoll_event event;
+		struct epoll_event *events;
+		socklen_t addrlen;
+        struct sockaddr_in6  clnt_addr;
+         int sd = *(unsigned int*)arg;
+          efd = epoll_create(5);                     /* epoll descriptor */
 		 if (efd < 0) {
 			  printf("Could not create the epoll fd: %m");
-			  return 1;
+			  return NULL;
 		 }
 
          event.data.fd = sd;
 		 event.events = EPOLLIN | EPOLLET;
-		 int s = epoll_ctl(efd, EPOLL_CTL_ADD, sd, &event);
+		 int s = epoll_ctl(efd, EPOLL_CTL_ADD, sd, &event); /* adds server's socket to epoll */
 		 if (s == -1) {
-			  perror ("epoll_ctl");
+			  perror ("error by epoll_ctl");
 			  exit(1);
 		 }
-         events = calloc(MAXEVENTS, sizeof event);
+         events = calloc(MAXEVENTS, sizeof event);         /* memory for events */
          while( 1 ) {	
 			 
 				 						/* eternal loop for accept client's connections */    
@@ -573,13 +597,13 @@
 										}
 									}
 								printf("accepted\n");
-								s = make_socket_non_blocking (ns);
+								s = make_socket_non_blocking(ns);
 								if (s == -1)
 									exit(1);
-								event.events = EPOLLIN |  EPOLLET;
+								event.events = EPOLLIN | EPOLLET;
 								event.data.fd = ns;
 								if (epoll_ctl(efd, EPOLL_CTL_ADD, ns, &event) < 0) {
-									  printf("Couldn't add client socket %d to epoll set: %m\n", clientsd);
+									  printf("Couldn't add client socket to epoll set:\n");
 									  exit(1);      
 								}
 							} 
@@ -664,6 +688,8 @@
         //free(events);
         close(sd);
     }
+    
+    
        
     void sig_handler(int sign)     /* signal handler */
     {
