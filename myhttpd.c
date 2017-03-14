@@ -12,27 +12,89 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
+#define CONFIG_FILE "httpd.conf"
 #define MAXEVENTS 64
-#define PORT 7771
 #define FILE_SIZEBUFFER_LENGTH 9
-#define _ROOT_ "/home/abyss4me/Myhttpd"
-
 typedef struct {						/* structure to store POST body string and it's length */
 		char post_param[1024];
 		int length;
     } post;
     
-    char ROOT_DIR[512];
-    //bzero(ROOT_DIR, 512);
-    //strcpy(ROOT_DIR, _ROOT_);
+void* thread_func(void* arg);
+    static int PORT;
+    static char _ROOT_DIR_[256];
+    static char _PHP_CGI_[256];
+    static char _PHP_CGI_PATH_[256];
 	void sig_handler(int sign);    /* signal handler prototype function */
-	int ns, nport, nbytes;
+	int nport, nbytes;
     int on = 1;
-
-	int sd, efd, clientsd, fd;
-	struct epoll_event event;
-    struct epoll_event *events;
+    int sd;
+	
+    
+    void read_configuration() {
+		char buf[256];
+		int n_lines = 6 ;   								/* initial size */
+		char* arg[n_lines];
+		bzero(buf, 256);
+		int i = 0;
+		FILE* f = fopen(CONFIG_FILE, "r");
+		if( f == NULL ) {
+			perror("can't open configuration file or file missing ");
+			exit(1);
+		}
+		do {											/* loop - read all lines of file and store them in array of strings */
+			arg[i] = malloc(64);						/* allocate memory 64 bytes for each line and store pointer in array */
+			fgets(arg[i], 64, f);
+			i++;
+		} while( !feof(f));
+		/* now let's parse each string */
+		char *p;
+		for( i=0; i<=n_lines; i++) {
+			
+			if( arg[i][0] == '#' ) continue;
+			if( (p = strstr(arg[i], "PORT")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					PORT = atoi(p);
+				}
+			}
+			if( (p = strstr(arg[i], "ROOT_DIR")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_ROOT_DIR_, p);
+					p = strchr(_ROOT_DIR_, '\n');        /* remove EOL */
+					*p = '\0';
+				}
+			}	
+			if( (p = strstr(arg[i], "PHP_CGI")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_PHP_CGI_, p);
+					p = strchr(_PHP_CGI_, '\n');        /* remove EOL */
+					*p = '\0';
+				}
+			}	
+			if( (p = strstr(arg[i], "PHP_CGI_PATH")) != NULL ) {
+				
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_PHP_CGI_PATH_, p);
+					p = strchr(_PHP_CGI_PATH_, '\n');        /* remove EOL */
+					*p = '\0';
+				}
+			}	
+			
+		}
+		for( i=0; i<=n_lines+1; i++)					/* free memory */
+			free(arg[i]);
+		fclose(f);
+	}
+    
     
     void not_found(int socket) {   
 		char not_found[] = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 100\r\n\r\n \
@@ -139,7 +201,6 @@ typedef struct {						/* structure to store POST body string and it's length */
 	int file_size(char* filename) {
 		FILE * f;
 		int f_size = 0;
-		printf("call from file_size: %s\n", filename);
 		f = fopen(filename, "r");
 		if( f == NULL ) {
 			perror("file not found: ");
@@ -154,7 +215,7 @@ typedef struct {						/* structure to store POST body string and it's length */
 		free(filename);
 	}
 	
-	char* get_rootdir() {
+	char* get_server_rootdir() {
 		char *path = malloc(1024);
 		bzero(path, 1024);
 		getcwd(path, 1024);
@@ -212,13 +273,14 @@ typedef struct {						/* structure to store POST body string and it's length */
 		char query_string[1024];
 		char script_filename[1024];
 		char s_length[6];						/* buffer to store string representation of Content-length */
+		char cgi_script[256];
 		bzero(s_length, 6);
 		bzero(query_string, 1024);
 		bzero(parameter, 1024);
 		bzero(filename, 64);
 		bzero(buf, 2);
 		int i = 0;
-		char full_filename[1024];
+		char full_filename[256];
 		bzero(full_filename, 1024);
 				char* p = strchr(header, '?');		/* extract string of parameters */
 				if( p != NULL ) {
@@ -233,10 +295,11 @@ typedef struct {						/* structure to store POST body string and it's length */
 				else {
 					strcpy(parameter, "");   	/* if there are no parameters, pass an empty string instead */
 				}					
-		strcpy(full_filename, get_rootdir());    /* do not forget to FREE memory */
+		strcpy(full_filename, _ROOT_DIR_ /*get_rootdir()*/);    /* do not forget to FREE memory */
 		strcat(full_filename, "/");
 		strcat(full_filename, parse_head_for_filename(header));
 		/* check for file existence */
+		//printf("%s\n", full_filename);
 		FILE *f = fopen(full_filename, "r");
 		if( f == NULL ) {						/* if file doesn't exist then send 404 Error */
 			not_found(socket);
@@ -256,10 +319,13 @@ typedef struct {						/* structure to store POST body string and it's length */
 			if( pid == 0 ) {
 				dup2(fd[1], STDOUT_FILENO);						/* redirect stdout to --> pipe write */
 				dup2(fd2[1], STDERR_FILENO);					/* redirect stderr to --> pipe write */
-				//if( strcmp(query_string, "") != 0 ) {   		/* if we call .php script with global POST and GET vars, then set environment's vars */ 
-			
+				               		/* if we call .php script with global POST and GET vars, then set environment's vars */ 
+			    
 				if( parse_for_method(header) ) {
-						if( -1 == execl("/home/abyss4me/Myhttpd/cgi.sh", "cgi.sh", post_param, s_length, "POST", full_filename,  (char*)NULL)) /* calling php-cgi process */
+					    strcpy(cgi_script, get_server_rootdir());
+					    strcat(cgi_script, "/cgi.sh");
+						if( -1 == execl(cgi_script, "cgi.sh", post_param, s_length, "POST", full_filename, _PHP_CGI_PATH_, 
+													(char*)NULL)) /* calling php-cgi process */
 					       perror("execl error: ");	
 					}
 					else {
@@ -271,7 +337,7 @@ typedef struct {						/* structure to store POST body string and it's length */
 						putenv("REDIRECT_STATUS=200");
 						putenv("HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 						putenv("CONTENT_TYPE=application/x-www-form-urlencoded");
-						if( -1 == execl("/usr/bin/php5-cgi", "php5-cgi",  (char*)NULL))   /* calling php-cgi process */
+						if( -1 == execl(_PHP_CGI_PATH_, _PHP_CGI_,  (char*)NULL))   /* calling php-cgi process */
 							perror("execl error: ");	
 				}	
 				close(fd[1]);
@@ -297,7 +363,7 @@ typedef struct {						/* structure to store POST body string and it's length */
 					mem++;
 					i++;
 				}		
-				while( (n = read(fd2[0], buf, 1)) > 0 ) { 		/* ERROR's output, reading result from pipe --> memory */
+				while( (n = read(fd2[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
 					i++;
@@ -305,15 +371,15 @@ typedef struct {						/* structure to store POST body string and it's length */
 			    waitpid(-1, &status, 0);						/* wait for child process (php-cgi) to terminate */
 				if ( (p = remove_phpcgi_header(p)) != NULL ) {
 					i -= 38;
-					send_header(full_filename, i, socket);			/* send header */									
+					send_header(filename, i, socket);			/* send header */									
 					while( i != 0 ) {
 						send(socket, p, 1, 0);		     		/* send result one-by-one to browser */
 						p++;
 						i--;
 					}
 				}
-				else {											/* if cgi gives response without his header */
-					send_header(full_filename, i, socket);
+				else {
+					send_header(filename, i, socket);
 					p = p_f;
 					while( i != 0 ) {
 						send(socket, p, 1, 0);		     		/* send result one-by-one */
@@ -332,44 +398,6 @@ typedef struct {						/* structure to store POST body string and it's length */
 		}
 		return 0;
 	}
-	
-
-	void parse_post_params(char* header, post* p) {  /* takes POST response-header from client as a parameter, parses header, */
-		int i = 0;							/* extracts body and Content-Length */
-		//post p;
-		char *ar[32];
-		char *c = header;
-		int j = 0, flag = 0;
-		for( i = 0; i <= 32; i++ ) {
-			ar[i] = malloc(1024);
-			do  {
-				
-				ar[i][j] = *c;
-				if( ar[i][0] == '\r' ) { c++; flag = 1; break; }
-				c++;
-				j++;
-			} while( *c != 10 );
-			c++;
-			j = 0;
-			if( flag ) { strcpy(p->post_param, c); break;}	
-		}
-	
-		for( i = 0; i <= 32; i++ ) {
-			if( strstr(ar[i], "Content-Length:") != NULL ) {
-				c = strchr(ar[i], 32);
-				c++;
-				int n = atoi(c);
-				p->length = n;
-				//printf("%d\n", n); 
-				break;
-			}		
-		}	
-		//c = strchr(p->post_param, '\n');
-		//*c = '\0';
-		//printf("Params %s \n", p->post_param);			
-		//return p;
-	}	
-		
 		
 	int read_media_file(char* filename, char* header, int socket) {
 		FILE* f;
@@ -456,20 +484,57 @@ typedef struct {						/* structure to store POST body string and it's length */
 		}
 	  return 0;
 	}
+	
+	void parse_post_params(char* header, post* p) {  /* takes POST response-header from client as a parameter, parses header, */
+		int i = 0;							/* extracts body and Content-Length */
+		//post p;
+		char *ar[32];
+		char *c = header;
+		int j = 0, flag = 0;
+		for( i = 0; i <= 32; i++ ) {
+			ar[i] = malloc(1024);
+			do  {
+				
+				ar[i][j] = *c;
+				if( ar[i][0] == '\r' ) { c++; flag = 1; break; }
+				c++;
+				j++;
+			} while( *c != 10 );
+			c++;
+			j = 0;
+			if( flag ) { strcpy(p->post_param, c); break;}	
+		}
+	
+		for( i = 0; i <= 32; i++ ) {
+			if( strstr(ar[i], "Content-Length:") != NULL ) {
+				c = strchr(ar[i], 32);
+				c++;
+				int n = atoi(c);
+				p->length = n;
+				//printf("%d\n", n); 
+				break;
+			}		
+		}	
+		//c = strchr(p->post_param, '\n');
+		//*c = '\0';
+		//printf("Params %s \n", p->post_param);			
+		//return p;
+	}	
     
     int main(int argc, char* argv[]) {
-        int nport = PORT; 
+        read_configuration();
+        //printf("%s", _ROOT_DIR_);
         //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
                    					/* thread  */
                          					/* holds thread args */
-        socklen_t addrlen;
-        struct sockaddr_in6 serv_addr, clnt_addr;
+        //socklen_t addrlen;
+        struct sockaddr_in6 serv_addr;
         struct hostent;
         bzero(&serv_addr, sizeof(serv_addr));
         serv_addr.sin6_family = AF_INET6; 						/* support ipv6 */
         //serv_addr.sin_addr.s_addr = INADDR_ANY; 				/* only for ipv4 */
         serv_addr.sin6_addr = in6addr_any; 
-        serv_addr.sin6_port = htons(nport);
+        serv_addr.sin6_port = htons(PORT);
         serv_addr.sin6_scope_id = 5;
         if( (sd = socket(AF_INET6, SOCK_STREAM, 0)) == -1 ) {	/* AF_INET6 socket is supported, compatible with ipv4 */
             perror("error calling socket()"); 					/* socket accepts both ipv4 and ipv6 conectionы. ::1 - localhost in ipv6 */
@@ -495,7 +560,7 @@ typedef struct {						/* structure to store POST body string and it's length */
             exit(EXIT_FAILURE);
         }
         printf("Server is ready, waiting fo connection...\n");   /* send ready prompt to the client */
-        if( listen(sd, 5) == -1 ) {
+        if( listen(sd, 50) == -1 ) {
             perror("error calling listen()"); 
             close(sd);
             exit(EXIT_FAILURE);
@@ -503,20 +568,46 @@ typedef struct {						/* structure to store POST body string and it's length */
        
         signal(SIGINT, sig_handler); 				/* set signal handler */
             
-         efd = epoll_create(5);
+        
+         pthread_t thread_1, thread_2;
+         pthread_attr_t attr;
+         pthread_attr_init(&attr);
+         int ret = pthread_create(&thread_1, &attr, &thread_func, &sd);
+         if( ret != 0 ) {
+			 perror("thread creating error:");
+			 exit(1);
+		 }
+		 ret = pthread_create(&thread_2, &attr, &thread_func, &sd);
+         if( ret != 0 ) {
+			 perror("thread creating error:");
+			 exit(1);
+		 }
+		 pthread_join(thread_1, NULL);
+		 pthread_join(thread_2, NULL);
+		 
+	 }
+	 
+	void* thread_func(void* arg) {
+		int ns, efd;
+		struct epoll_event event;
+		struct epoll_event *events;
+		socklen_t addrlen;
+        struct sockaddr_in6  clnt_addr;
+         int sd = *(unsigned int*)arg;
+          efd = epoll_create(5);                     /* epoll descriptor */
 		 if (efd < 0) {
 			  printf("Could not create the epoll fd: %m");
-			  return 1;
+			  return NULL;
 		 }
 
          event.data.fd = sd;
 		 event.events = EPOLLIN | EPOLLET;
-		 int s = epoll_ctl(efd, EPOLL_CTL_ADD, sd, &event);
+		 int s = epoll_ctl(efd, EPOLL_CTL_ADD, sd, &event); /* adds server's socket to epoll */
 		 if (s == -1) {
-			  perror ("epoll_ctl");
+			  perror ("error by epoll_ctl");
 			  exit(1);
 		 }
-         events = calloc(MAXEVENTS, sizeof event);
+         events = calloc(MAXEVENTS, sizeof event);         /* memory for events */
          while( 1 ) {	
 			 
 				 						/* eternal loop for accept client's connections */    
@@ -548,13 +639,13 @@ typedef struct {						/* structure to store POST body string and it's length */
 										}
 									}
 								printf("accepted\n");
-								s = make_socket_non_blocking (ns);
+								s = make_socket_non_blocking(ns);
 								if (s == -1)
 									exit(1);
-								event.events = EPOLLIN |  EPOLLET;
+								event.events = EPOLLIN | EPOLLET;
 								event.data.fd = ns;
 								if (epoll_ctl(efd, EPOLL_CTL_ADD, ns, &event) < 0) {
-									  printf("Couldn't add client socket %d to epoll set: %m\n", clientsd);
+									  printf("Couldn't add client socket to epoll set:\n");
 									  exit(1);      
 								}
 							} 
@@ -565,11 +656,6 @@ typedef struct {						/* structure to store POST body string and it's length */
 									bzero(buf, sizeof(buf));		
 									while ((count = read(events[i].data.fd, buf, 4096)) > 0) {
 									printf("%s\n",buf);
-									
-									//static int post_flag = 0;
-									//char aux_buf[4096];
-									
-									//else {
 										char *f_name = parse_head_for_filename(buf);	
 										if ( f_name != NULL) {
 											if (check_content_type(f_name) == 1) {
@@ -592,10 +678,10 @@ typedef struct {						/* structure to store POST body string and it's length */
 											else if( check_content_type(f_name) == 3 ) {
 												not_found(events[i].data.fd);				/* if erver will be support another file extensions then change it!!!!! */
 											}
-										} 		
+										} 
 										else close(events[i].data.fd);
 									bzero(buf, sizeof(buf));
-								//}
+								
 								}
 									if( count == -1 ) {
 										  /* If errno == EAGAIN, that means we have read all
@@ -623,6 +709,8 @@ typedef struct {						/* structure to store POST body string and it's length */
         //free(events);
         close(sd);
     }
+    
+    
        
     void sig_handler(int sign)     /* signal handler */
     {
