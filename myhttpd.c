@@ -18,6 +18,11 @@
 #define FILE_SIZEBUFFER_LENGTH 9
 #define _ROOT_ "/home/abyss4me/Myhttpd"
 
+typedef struct {						/* structure to store POST body string and it's length */
+		char post_param[1024];
+		int length;
+    } post;
+    
     char ROOT_DIR[512];
     //bzero(ROOT_DIR, 512);
     //strcpy(ROOT_DIR, _ROOT_);
@@ -134,6 +139,7 @@
 	int file_size(char* filename) {
 		FILE * f;
 		int f_size = 0;
+		printf("call from file_size: %s\n", filename);
 		f = fopen(filename, "r");
 		if( f == NULL ) {
 			perror("file not found: ");
@@ -291,7 +297,7 @@
 					mem++;
 					i++;
 				}		
-				while( (n = read(fd2[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
+				while( (n = read(fd2[0], buf, 1)) > 0 ) { 		/* ERROR's output, reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
 					i++;
@@ -299,15 +305,15 @@
 			    waitpid(-1, &status, 0);						/* wait for child process (php-cgi) to terminate */
 				if ( (p = remove_phpcgi_header(p)) != NULL ) {
 					i -= 38;
-					send_header(filename, i, socket);			/* send header */									
+					send_header(full_filename, i, socket);			/* send header */									
 					while( i != 0 ) {
 						send(socket, p, 1, 0);		     		/* send result one-by-one to browser */
 						p++;
 						i--;
 					}
 				}
-				else {
-					send_header(filename, i, socket);
+				else {											/* if cgi gives response without his header */
+					send_header(full_filename, i, socket);
 					p = p_f;
 					while( i != 0 ) {
 						send(socket, p, 1, 0);		     		/* send result one-by-one */
@@ -327,45 +333,41 @@
 		return 0;
 	}
 	
-	typedef struct {
-	char post_param[1024];
-	int length;
-} post;
 
-	int parse_post_params(char* header) {
-		int i = 0;
-	post p;
-	char *ar[32];
-	char param[128];
-	char *c = header;
-	int j = 0, flag = 0;
-	for( i = 0; i <= 32; i++ ) {
-		ar[i] = malloc(1024);
-		do  {
-			printf("test\n");
-			ar[i][j] = *c;
-			if( ar[i][0] == '\r' ) { flag = 1; break; }
+	void parse_post_params(char* header, post* p) {  /* takes POST response-header from client as a parameter, parses header, */
+		int i = 0;							/* extracts body and Content-Length */
+		//post p;
+		char *ar[32];
+		char *c = header;
+		int j = 0, flag = 0;
+		for( i = 0; i <= 32; i++ ) {
+			ar[i] = malloc(1024);
+			do  {
+				
+				ar[i][j] = *c;
+				if( ar[i][0] == '\r' ) { c++; flag = 1; break; }
+				c++;
+				j++;
+			} while( *c != 10 );
 			c++;
-			j++;
-		} while( *c != 13 );
-		c++;
-		j = 0;
-		if( flag ) { strcpy(param, c); break;}	
-	}
+			j = 0;
+			if( flag ) { strcpy(p->post_param, c); break;}	
+		}
 	
-	for( i = 0; i <= 32; i++ ) {
-		if( strstr(ar[i], "Content-Length:") != NULL ) {
-			c = strchr(ar[i], 32);
-			c++;
-			int n = atoi(c);
-			p.length = n;
-			printf("%d\n", n); 
-			break;
-		}		
-	}
-	strcpy(p.post_param, param);
-		
-		return 0;
+		for( i = 0; i <= 32; i++ ) {
+			if( strstr(ar[i], "Content-Length:") != NULL ) {
+				c = strchr(ar[i], 32);
+				c++;
+				int n = atoi(c);
+				p->length = n;
+				//printf("%d\n", n); 
+				break;
+			}		
+		}	
+		//c = strchr(p->post_param, '\n');
+		//*c = '\0';
+		//printf("Params %s \n", p->post_param);			
+		//return p;
 	}	
 		
 		
@@ -563,37 +565,11 @@
 									bzero(buf, sizeof(buf));		
 									while ((count = read(events[i].data.fd, buf, 4096)) > 0) {
 									printf("%s\n",buf);
-									if( parse_for_method(buf) == 1)
-										parse_post_params(buf);
-									static int post_flag = 0;
-									char aux_buf[4096];
-									if( (parse_for_method(buf) == 1) || (post_flag == 1) )   /* Catch POST request */ {
-										char *p = strstr(buf, "Content-Length:");			 /* As I've mentioned WEB browser sends POST head */
-										static int length = 0;								 /* and POST body separately */
-										post_flag = 1;										 /* this piece of code catch POST header first */
-										if( p != NULL ) {							         /* then catch POST body 2th cycle */
-											while( *p != 32 ) {                              /* post_flag is needed to determine second request from browser with message body */
-												p++;										 
-											}
-											p++;
-											length = atoi(p);
-											bzero(aux_buf, 4096);
-											strcpy(aux_buf, buf);
-											bzero(buf, sizeof(buf));		
-										}
-										else {
-											char *f_name = parse_head_for_filename(aux_buf);	
-											if ( f_name != NULL) {
-												if( check_content_type(f_name) == 2 ) {
-													php_cgi(aux_buf, buf, length, events[i].data.fd);   /* ADD to php_cgi char* param !!!!! */
-												}  
-											}												/* this code executes only when post_flg set to 0 */
-											post_flag = 0;									/*   this means that next request (after POST head) from browser */
-	                                                        								/*   goes with message (POST parameters) in single string */
-											bzero(buf, sizeof(buf));						/*   for ex. login=hello+world */
-										}													
-									}
-									else {
+									
+									//static int post_flag = 0;
+									//char aux_buf[4096];
+									
+									//else {
 										char *f_name = parse_head_for_filename(buf);	
 										if ( f_name != NULL) {
 											if (check_content_type(f_name) == 1) {
@@ -603,8 +579,15 @@
 												read_media_file(f_name, buf, events[i].data.fd);
 											}
 											else if( check_content_type(f_name) == 2 ) {
-												
-												php_cgi(buf, NULL, 0, events[i].data.fd);
+												post p;
+												if( parse_for_method(buf) == 1) {					
+													parse_post_params(buf, &p);
+													//printf("Params: %s ", p.post_param);
+													php_cgi(buf, p.post_param, p.length, events[i].data.fd);
+												} 
+												else {
+													php_cgi(buf, NULL, 0, events[i].data.fd);
+												}		
 											}  
 											else if( check_content_type(f_name) == 3 ) {
 												not_found(events[i].data.fd);				/* if erver will be support another file extensions then change it!!!!! */
@@ -612,7 +595,7 @@
 										} 		
 										else close(events[i].data.fd);
 									bzero(buf, sizeof(buf));
-								}
+								//}
 								}
 									if( count == -1 ) {
 										  /* If errno == EAGAIN, that means we have read all
