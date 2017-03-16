@@ -17,16 +17,20 @@
 #define CONFIG_FILE "httpd.conf"
 #define MAXEVENTS 64
 #define FILE_SIZEBUFFER_LENGTH 9
+
 typedef struct {						/* structure to store POST body string and it's length */
 		char post_param[1024];
 		int length;
     } post;
     
+   
 void* thread_func(void* arg);
+int upload_file(char* content, char* bound_end);
     static int PORT;
     static char _ROOT_DIR_[256];
     static char _PHP_CGI_[256];
     static char _PHP_CGI_PATH_[256];
+    static char _FILE_UPLOAD_DIR_[256];
 	void sig_handler(int sign);    /* signal handler prototype function */
 	int nport, nbytes;
     int on = 1;
@@ -35,8 +39,8 @@ void* thread_func(void* arg);
     
     void read_configuration() {
 		char buf[256];
-		int n_lines = 6 ;   								/* initial size */
-		char* arg[n_lines];
+		int n_lines = 0;   								/* initial size */
+		char* arg[20];									/* default number */
 		bzero(buf, 256);
 		int i = 0;
 		FILE* f = fopen(CONFIG_FILE, "r");
@@ -49,53 +53,152 @@ void* thread_func(void* arg);
 			fgets(arg[i], 64, f);
 			i++;
 		} while( !feof(f));
+		n_lines = i - 1;
 		/* now let's parse each string */
 		char *p;
-		for( i=0; i<=n_lines; i++) {
+		for( i = 0; i <= n_lines; i++) {
 			
 			if( arg[i][0] == '#' ) continue;
-			if( (p = strstr(arg[i], "PORT")) != NULL ) {
-				
+			if( (p = strstr(arg[i], "PORT")) != NULL ) {	
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					PORT = atoi(p);
 				}
 			}
-			if( (p = strstr(arg[i], "ROOT_DIR")) != NULL ) {
-				
+			if( (p = strstr(arg[i], "ROOT_DIR")) != NULL ) {	
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					strcpy(_ROOT_DIR_, p);
 					p = strchr(_ROOT_DIR_, '\n');        /* remove EOL */
-					*p = '\0';
+					if( p != NULL ) *p = '\0';
 				}
 			}	
-			if( (p = strstr(arg[i], "PHP_CGI")) != NULL ) {
-				
+			if( (p = strstr(arg[i], "PHP_CGI_FILE")) != NULL ) {	
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					strcpy(_PHP_CGI_, p);
 					p = strchr(_PHP_CGI_, '\n');        /* remove EOL */
-					*p = '\0';
+					if( p != NULL ) *p = '\0';
 				}
 			}	
 			if( (p = strstr(arg[i], "PHP_CGI_PATH")) != NULL ) {
-				
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					strcpy(_PHP_CGI_PATH_, p);
 					p = strchr(_PHP_CGI_PATH_, '\n');        /* remove EOL */
-					*p = '\0';
+					if( p != NULL ) *p = '\0';
 				}
 			}	
-			
+			if( (p = strstr(arg[i], "FILE_UPLOAD_DIR")) != NULL ) {	
+				if( (p = strchr(arg[i], '=')) != NULL ) {
+					p++;
+					strcpy(_FILE_UPLOAD_DIR_, p);
+					p = strchr(_FILE_UPLOAD_DIR_, '\n');        /* remove EOL */
+					if( p != NULL ) *p = '\0';
+				}
+			}	
+				
 		}
-		for( i=0; i<=n_lines+1; i++)					/* free memory */
+		
+		for( i = 0; i <= n_lines; i++)					/* free memory */
 			free(arg[i]);
 		fclose(f);
 	}
     
-    
+    int content_type(char* header) {
+		char s_multipart[] = "multipart/form-data";
+		char s_bound[] = "boundary";
+		char s_filename[] = "filename";
+		char *boundary;    
+        char *upload_file_name;
+		char bound_begin[64];
+		char bound_end[64];
+		boundary = malloc(64);
+		char *b = boundary;
+		bzero(boundary, 64);
+		upload_file_name = malloc(256);
+		char *fn = upload_file_name;
+		bzero(upload_file_name, 256);
+		char *p = strstr(header, s_multipart);
+		/**************getting boundary*******************/
+		if( p != NULL ) {
+			p = strstr(header, s_bound);
+			p += sizeof(s_bound);
+		}
+		else return 1;	
+		while( *p != '\r' ) {
+			*boundary = *p;
+			boundary++;
+			p++;
+		}
+		/***************gettinf file name*****************/
+		char *pfn = strstr(header, s_filename);
+		if( pfn != NULL ) {
+			pfn += sizeof(s_filename) + 1;
+		} 
+		else return 1;
+		while( *pfn != '"' ) {
+			*upload_file_name = *pfn;
+			upload_file_name++;
+			pfn++;
+		}
+	
+		/****************getting file content**************/
+		strcpy(bound_begin, "--");
+		strcat(bound_begin, b);         /* ------boundary */
+		strcpy(bound_end, bound_begin);
+		strcat(bound_end, "--");      /* ------boundary-- */
+		
+		p = strstr(header, bound_begin);  /* begin of file header */
+		
+		for(; ;) {
+			if( *p == '\r' ) { 
+				p += 2;
+				if( *p == '\r' ) {
+					p += 2;               /* now p --> points to beginning of file content */
+					break;
+				}
+			}
+			else {
+				p++;
+			}
+		}
+		upload_file(p, fn);
+		printf("Boundary is: %s\n", b);
+		printf("File name is: %s\n", fn);
+		printf("================File content is=====================: %s\n", p);
+		return 0;
+	}
+	
+	int upload_file(char* content, char* filename) {
+		char *p;
+		char full_path[256];
+		strcpy(full_path, _FILE_UPLOAD_DIR_);
+		strcat(full_path, "/");
+		strcat(full_path, filename);
+		
+		FILE* f = fopen(full_path, "w");
+		if( f == NULL ) {
+			perror("error creating file:");
+			return 0;
+		}
+		p = content;
+		char buf[1];
+		bzero(buf, sizeof(buf));
+		while( 1 ) {
+			if( *p == '\r' ) { 
+				p ++;
+				if( *p == '\n' ) {
+					break;
+				}
+			}
+			fputc(*p, f);
+			p++;
+		}
+		fclose(f);
+		return 0;
+	}
+	
     void not_found(int socket) {   
 		char not_found[] = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 100\r\n\r\n \
 		<html><body><h1>404 Not found!</h1> </br> <h3>Sorry, required page doesn't exist!</h3></body></html>";	
@@ -146,10 +249,11 @@ void* thread_func(void* arg);
 		if( strcmp(f, "") == 0 ) {					/* if start page is not specified in URL */
 			strcpy(f, "index.html");				/* default start page "index.html" as usual */
 		}
+		
 		return f;
 	}
 	
-	int check_content_type(char* filename) {
+	int check_ext_type(char* filename) {
 		char* p = filename;
 		char ext[8];
 		bzero(ext, 8);
@@ -282,19 +386,19 @@ void* thread_func(void* arg);
 		int i = 0;
 		char full_filename[256];
 		bzero(full_filename, 1024);
-				char* p = strchr(header, '?');		/* extract string of parameters */
-				if( p != NULL ) {
-					p++;
-					i = 0;
-					while( *p != 32 ) {
-						parameter[i] = *p;		
-						p++;		
-						i++;
-					}
-				}
-				else {
-					strcpy(parameter, "");   	/* if there are no parameters, pass an empty string instead */
-				}					
+		char* p = strchr(header, '?');		/* extract string of parameters */
+		if( p != NULL ) {
+			p++;
+			i = 0;
+			while( *p != 32 ) {
+				parameter[i] = *p;		
+				p++;		
+				i++;
+			}
+		}
+		else {
+			strcpy(parameter, "");   	/* if there are no parameters, pass an empty string instead */
+		}					
 		strcpy(full_filename, _ROOT_DIR_ /*get_rootdir()*/);    /* do not forget to FREE memory */
 		strcat(full_filename, "/");
 		strcat(full_filename, parse_head_for_filename(header));
@@ -469,25 +573,23 @@ void* thread_func(void* arg);
 		
     static int make_socket_non_blocking (int sfd)
 	{
-	  int flags, s;
-	  flags = fcntl (sfd, F_GETFL, 0);
-	  if (flags == -1) {
-		  perror ("fcntl");
-		  return -1;
+		int flags, s;
+		flags = fcntl (sfd, F_GETFL, 0);
+		if (flags == -1) {
+			perror ("fcntl");
+			return -1;
 		}
-
-	  flags |= O_NONBLOCK;
-	  s = fcntl (sfd, F_SETFL, flags);
-	  if (s == -1) {
-		  perror ("fcntl");
-		  return -1;
+		flags |= O_NONBLOCK;
+		s = fcntl (sfd, F_SETFL, flags);
+		if (s == -1) {
+			perror ("fcntl");
+			return -1;
 		}
-	  return 0;
+		return 0;
 	}
 	
 	void parse_post_params(char* header, post* p) {  /* takes POST response-header from client as a parameter, parses header, */
 		int i = 0;							/* extracts body and Content-Length */
-		//post p;
 		char *ar[32];
 		char *c = header;
 		int j = 0, flag = 0;
@@ -515,19 +617,19 @@ void* thread_func(void* arg);
 				break;
 			}		
 		}	
-		//c = strchr(p->post_param, '\n');
-		//*c = '\0';
-		//printf("Params %s \n", p->post_param);			
-		//return p;
 	}	
     
     int main(int argc, char* argv[]) {
         read_configuration();
-        //printf("%s", _ROOT_DIR_);
+        printf("%s\n", _FILE_UPLOAD_DIR_);
+        printf("%s\n",_ROOT_DIR_);
+		printf("%s\n",_PHP_CGI_);
+		printf("%s\n",_PHP_CGI_PATH_);
+
+        pthread_t thread_1, thread_2;
+        pthread_attr_t attr;
         //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
-                   					/* thread  */
-                         					/* holds thread args */
-        //socklen_t addrlen;
+											
         struct sockaddr_in6 serv_addr;
         struct hostent;
         bzero(&serv_addr, sizeof(serv_addr));
@@ -540,19 +642,16 @@ void* thread_func(void* arg);
             perror("error calling socket()"); 					/* socket accepts both ipv4 and ipv6 conectionы. ::1 - localhost in ipv6 */
             exit(EXIT_FAILURE);
         }
-        
-         if (fcntl(sd, F_SETFL, O_NONBLOCK))
-		   {
-			  printf("Could not make the socket non-blocking: %m\n");
-			  close(sd);
-			  return 3;
-		   }
-		  if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)))
-		   {
-			  printf("Could not set socket %d option for reusability: %m\n", sd);
-			  close(sd);
-			  return 4;
-		   }
+        if( fcntl(sd, F_SETFL, O_NONBLOCK) ) {
+			printf("Could not make the socket non-blocking: %m\n");
+			close(sd);
+			return 3;
+		}
+		if( setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) ) {
+			printf("Could not set socket %d option for reusability: %m\n", sd);
+			close(sd);
+			return 4;
+		}
         
         if( bind(sd,(struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1  ) {
             perror("error calling bind()"); 
@@ -566,24 +665,20 @@ void* thread_func(void* arg);
             exit(EXIT_FAILURE);
         }
        
-        signal(SIGINT, sig_handler); 				/* set signal handler */
-            
-        
-         pthread_t thread_1, thread_2;
-         pthread_attr_t attr;
-         pthread_attr_init(&attr);
-         int ret = pthread_create(&thread_1, &attr, &thread_func, &sd);
-         if( ret != 0 ) {
-			 perror("thread creating error:");
-			 exit(1);
-		 }
-		 ret = pthread_create(&thread_2, &attr, &thread_func, &sd);
-         if( ret != 0 ) {
-			 perror("thread creating error:");
-			 exit(1);
-		 }
-		 pthread_join(thread_1, NULL);
-		 pthread_join(thread_2, NULL);
+        signal(SIGINT, sig_handler); 				/* set signal handler */     
+        pthread_attr_init(&attr);
+        int ret = pthread_create(&thread_1, &attr, &thread_func, &sd);
+        if( ret != 0 ) {
+			perror("thread creating error:");
+			exit(1);
+		}
+		ret = pthread_create(&thread_2, &attr, &thread_func, &sd);
+        if( ret != 0 ) {
+			perror("thread creating error:");
+			exit(1);
+		}
+		pthread_join(thread_1, NULL);
+		pthread_join(thread_2, NULL);
 		 
 	 }
 	 
@@ -593,27 +688,26 @@ void* thread_func(void* arg);
 		struct epoll_event *events;
 		socklen_t addrlen;
         struct sockaddr_in6  clnt_addr;
-         int sd = *(unsigned int*)arg;
-          efd = epoll_create(5);                     /* epoll descriptor */
-		 if (efd < 0) {
-			  printf("Could not create the epoll fd: %m");
-			  return NULL;
-		 }
-
+        int sd = *(unsigned int*)arg;
+        efd = epoll_create(5);                     /* epoll descriptor */
+		if (efd < 0) {
+			printf("Could not create the epoll fd: %m");
+			close(efd);
+			return NULL;
+		}
          event.data.fd = sd;
 		 event.events = EPOLLIN | EPOLLET;
 		 int s = epoll_ctl(efd, EPOLL_CTL_ADD, sd, &event); /* adds server's socket to epoll */
 		 if (s == -1) {
 			  perror ("error by epoll_ctl");
+			  close(efd);
 			  exit(1);
 		 }
          events = calloc(MAXEVENTS, sizeof event);         /* memory for events */
          while( 1 ) {	
-			 
 				 						/* eternal loop for accept client's connections */    
 			 int n, i;
 			 printf("before epoll wait\n");
-			 
 			 n = epoll_wait(efd, events, MAXEVENTS, -1);
 			 for (i = 0; i < n; i++) {	
 				 //printf("%d\n", i);		 
@@ -650,21 +744,22 @@ void* thread_func(void* arg);
 								}
 							} 
 							else {
-								    int done = 0;
+								    //int done = 0;
 								    ssize_t count;
-									char buf[4096];
+									char buf[1000000];
 									bzero(buf, sizeof(buf));		
-									while ((count = read(events[i].data.fd, buf, 4096)) > 0) {
-									printf("%s\n",buf);
-										char *f_name = parse_head_for_filename(buf);	
+									while( (count = read(events[i].data.fd, buf, sizeof(buf))) > 0 ) {
+										printf("%s\n",buf);
+										content_type(buf);
+										char *f_name = parse_head_for_filename(buf);	       /*   1 */
 										if ( f_name != NULL) {
-											if (check_content_type(f_name) == 1) {
+											if (check_ext_type(f_name) == 1) {             /* 2 */
 												read_html_file(f_name, buf, events[i].data.fd);
 											}
-											else if( check_content_type(f_name) == 0 ) {
+											else if( check_ext_type(f_name) == 0 ) {
 												read_media_file(f_name, buf, events[i].data.fd);
 											}
-											else if( check_content_type(f_name) == 2 ) {
+											else if( check_ext_type(f_name) == 2 ) {
 												post p;
 												if( parse_for_method(buf) == 1) {					
 													parse_post_params(buf, &p);
@@ -675,34 +770,14 @@ void* thread_func(void* arg);
 													php_cgi(buf, NULL, 0, events[i].data.fd);
 												}		
 											}  
-											else if( check_content_type(f_name) == 3 ) {
+											else if( check_ext_type(f_name) == 3 ) {
 												not_found(events[i].data.fd);				/* if erver will be support another file extensions then change it!!!!! */
 											}
 										} 
 										else close(events[i].data.fd);
-									bzero(buf, sizeof(buf));
-								
-								}
-									if( count == -1 ) {
-										  /* If errno == EAGAIN, that means we have read all
-											 data. So go back to the main loop. */
-										  if (errno != EAGAIN) {
-											  done = 1;
-										  }
-										  break;
-								     }
-									else if( count == 0 ) {
-										/* End of file. The remote has closed the
-											connection. */
-											done = 1;
-											break;
+										bzero(buf, sizeof(buf));
 									}
-						     if(done) {
-							   printf ("Closed connection on descriptor %d\n", events[i].data.fd);         
-							  /* Closing the descriptor will make epoll remove it
-								 from the set of descriptors which are monitored. */
-							  close (events[i].data.fd);
-							}    
+							  
 	                   }
 			}    
         }
