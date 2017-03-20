@@ -25,7 +25,7 @@ typedef struct {						/* structure to store POST body string and it's length */
     
    
 void* thread_func(void* arg);
-int upload_file(char* content, char* bound_end);
+int upload_file(char* content, char* fn, char* end);
     static int PORT;
     static char _ROOT_DIR_[256];
     static char _PHP_CGI_[256];
@@ -41,7 +41,7 @@ int upload_file(char* content, char* bound_end);
 		char buf[256];
 		int n_lines = 0;   								/* initial size */
 		char* arg[20];									/* default number */
-		bzero(buf, 256);
+		memset(buf, 0, 256);
 		int i = 0;
 		FILE* f = fopen(CONFIG_FILE, "r");
 		if( f == NULL ) {
@@ -115,17 +115,17 @@ int upload_file(char* content, char* bound_end);
 		char bound_end[64];
 		boundary = malloc(64);
 		char *b = boundary;
-		bzero(boundary, 64);
+		memset(boundary, 0, 64);
 		upload_file_name = malloc(256);
 		char *fn = upload_file_name;
-		bzero(upload_file_name, 256);
+		memset(upload_file_name, 0, 256);
 		char *p = strstr(header, s_multipart);
 		/**************getting boundary*******************/
 		if( p != NULL ) {
 			p = strstr(header, s_bound);
 			p += sizeof(s_bound);
 		}
-		else return 1;	
+		else { free(b); free(fn); return 1;}
 		while( *p != '\r' ) {
 			*boundary = *p;
 			boundary++;
@@ -142,7 +142,7 @@ int upload_file(char* content, char* bound_end);
 			upload_file_name++;
 			pfn++;
 		}
-	
+	   
 		/****************getting file content**************/
 		strcpy(bound_begin, "--");
 		strcat(bound_begin, b);         /* ------boundary */
@@ -150,7 +150,7 @@ int upload_file(char* content, char* bound_end);
 		strcat(bound_end, "--");      /* ------boundary-- */
 		
 		p = strstr(header, bound_begin);  /* begin of file header */
-		
+	
 		for(; ;) {
 			if( *p == '\r' ) { 
 				p += 2;
@@ -163,34 +163,42 @@ int upload_file(char* content, char* bound_end);
 				p++;
 			}
 		}
-		upload_file(p, fn);
-		printf("Boundary is: %s\n", b);
-		printf("File name is: %s\n", fn);
-		printf("================File content is=====================: %s\n", p);
+	
+		upload_file(p, fn, bound_end);
+		//printf("Boundary is: %s\n", b);
+		//printf("File name is: %s\n", fn);
+		//printf("================File content is=====================: %s\n", p);
+		free(fn);
+		free(b);
 		return 0;
 	}
 	
-	int upload_file(char* content, char* filename) {
+	int upload_file(char* content, char* filename, char* end) {
 		char *p;
 		char full_path[256];
+		
 		strcpy(full_path, _FILE_UPLOAD_DIR_);
 		strcat(full_path, "/");
 		strcat(full_path, filename);
-		
+		 
 		FILE* f = fopen(full_path, "w");
 		if( f == NULL ) {
 			perror("error creating file:");
 			return 0;
 		}
 		p = content;
-		char buf[1];
-		bzero(buf, sizeof(buf));
+
 		while( 1 ) {
-			if( *p == '\r' ) { 
+			if( *p == 0xD ) { 	
 				p ++;
-				if( *p == '\n' ) {
-					break;
-				}
+				if( *p == 0xA ) {
+					p++;
+					if( *p == '-' ) {
+						 break;
+					 }
+					 p--;
+				 }
+				p--;
 			}
 			fputc(*p, f);
 			p++;
@@ -218,7 +226,7 @@ int upload_file(char* content, char* bound_end);
 		char *p;
 		char *file_name = malloc(256);
 		char *f = file_name;
-		bzero(file_name, 256);
+		memset(file_name, 0, 256);
 		p = strstr(header, "GET");       /* !!!!!!!!!!!!!!!  not for POST yet */
 		if( p != NULL ) {
 			p = strchr(header, '/');
@@ -256,7 +264,7 @@ int upload_file(char* content, char* bound_end);
 	int check_ext_type(char* filename) {
 		char* p = filename;
 		char ext[8];
-		bzero(ext, 8);
+		memset(ext, 0, 8);
 		int i = 0;
 		p = strchr(filename, '.');
 		if ( p != NULL ) {
@@ -285,7 +293,7 @@ int upload_file(char* content, char* bound_end);
 	char* parse_for_contype(char* header) {
 		char *p;
 		char *connection_type = malloc(64);
-		bzero(connection_type, 64);
+		memset(connection_type, 0, 64);
 		char *con = connection_type;
 		p = strstr(header, "Connection:");
 		if( p != NULL ) {
@@ -321,14 +329,14 @@ int upload_file(char* content, char* bound_end);
 	
 	char* get_server_rootdir() {
 		char *path = malloc(1024);
-		bzero(path, 1024);
+		memset(path, 0, 1024);
 		getcwd(path, 1024);
 		return path;
 	}
 	
 	void send_header(char *filename, int size, int socket) {
 		char length[FILE_SIZEBUFFER_LENGTH];
-		bzero(length, FILE_SIZEBUFFER_LENGTH);
+		memset(length, 0, FILE_SIZEBUFFER_LENGTH);
 		int f_size = 0;
 		if( size == 0 ) f_size = file_size(filename);
         else f_size = size;
@@ -337,16 +345,16 @@ int upload_file(char* content, char* bound_end);
 		char head_p2[] = "\r\nContent-Length: ";
 		char head_p3[] = "\r\nConnection: keep-alive\r\n\r\n"; 
 		send(socket, head_p1, sizeof(head_p1), 0);
-		printf("%s",head_p1);
+		//printf("%s",head_p1);
 		strcat(head_p2, length);
 		int i = 0;
 		while( head_p2[i] != '\0' ) {      		/* count string size ( may be should to make separate function) */ 		
 			i++;
 		}
 		send(socket, head_p2, i, 0);
-		printf("%s",head_p2);	
+		//printf("%s",head_p2);	
 		send(socket, head_p3, sizeof(head_p3) - 1, 0);
-		printf("%s",head_p3);
+		//printf("%s",head_p3);
 		//free(filename);	
 	}
 	
@@ -378,14 +386,14 @@ int upload_file(char* content, char* bound_end);
 		char script_filename[1024];
 		char s_length[6];						/* buffer to store string representation of Content-length */
 		char cgi_script[256];
-		bzero(s_length, 6);
-		bzero(query_string, 1024);
-		bzero(parameter, 1024);
-		bzero(filename, 64);
-		bzero(buf, 2);
+		memset(s_length, 0, 6);
+		memset(query_string, 0, 1024);
+		memset(parameter, 0, 1024);
+		memset(filename, 0, 64);
+		memset(buf, 0, 2);
 		int i = 0;
 		char full_filename[256];
-		bzero(full_filename, 1024);
+		memset(full_filename, 0, 1024);
 		char* p = strchr(header, '?');		/* extract string of parameters */
 		if( p != NULL ) {
 			p++;
@@ -461,7 +469,7 @@ int upload_file(char* content, char* bound_end);
 				}
 				char *p = mem;
 				char *p_f = mem;
-				bzero(mem, 1000000);	
+				memset(mem, 0, 1000000);	
 				while( (n = read(fd[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
@@ -511,7 +519,7 @@ int upload_file(char* content, char* bound_end);
 			return 1;
 		}
 		char length[FILE_SIZEBUFFER_LENGTH];	
-		bzero(length, FILE_SIZEBUFFER_LENGTH);
+		memset(length, 0, FILE_SIZEBUFFER_LENGTH);
 		int f_size = file_size(filename);
 		sprintf(length, "%d", f_size);//image/jpeg
 		char head_p1[] = "HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Type: image/jpeg";
@@ -529,12 +537,12 @@ int upload_file(char* content, char* bound_end);
 		send(socket, head_p3, sizeof(head_p3) - 1, 0);
 		printf("%s",head_p3);		
 		char *buf = malloc(1);
-		bzero(buf, 1);
+		memset(buf, 0, 1);
 		int n;
 		while ( (n = fread(buf, 1, 1, f)) > 0  ) {			
 			if( send(socket, buf, n, 0) == -1 )
 				printf("%s","Error sending file!!");
-			bzero(buf, 1);
+			memset(buf, 0, 1);
 		} 
 		fclose(f);
 		free(buf);
@@ -555,12 +563,12 @@ int upload_file(char* content, char* bound_end);
 		}
 		send_header(filename, 0, socket);    /* call send_header */
 		char *buf = malloc(1);
-		bzero(buf, 1);
+		memset(buf, 0, 1);
 		int n;
 		while ( (n = fread(buf, 1, 1, f)) > 0  ) {			
 			if( send(socket, buf, n, 0) == -1 )
 				printf("%s","Error sending file!!");
-			bzero(buf, 1);
+			memset(buf, 0, 1);
 		} 
 		fclose(f);
 		free(buf);	
@@ -621,18 +629,13 @@ int upload_file(char* content, char* bound_end);
     
     int main(int argc, char* argv[]) {
         read_configuration();
-        printf("%s\n", _FILE_UPLOAD_DIR_);
-        printf("%s\n",_ROOT_DIR_);
-		printf("%s\n",_PHP_CGI_);
-		printf("%s\n",_PHP_CGI_PATH_);
-
         pthread_t thread_1, thread_2;
         pthread_attr_t attr;
         //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
 											
         struct sockaddr_in6 serv_addr;
         struct hostent;
-        bzero(&serv_addr, sizeof(serv_addr));
+        memset(&serv_addr, 0, sizeof(serv_addr));
         serv_addr.sin6_family = AF_INET6; 						/* support ipv6 */
         //serv_addr.sin_addr.s_addr = INADDR_ANY; 				/* only for ipv4 */
         serv_addr.sin6_addr = in6addr_any; 
@@ -643,12 +646,12 @@ int upload_file(char* content, char* bound_end);
             exit(EXIT_FAILURE);
         }
         if( fcntl(sd, F_SETFL, O_NONBLOCK) ) {
-			printf("Could not make the socket non-blocking: %m\n");
+			printf("Could not make the socket non-blocking:\n");
 			close(sd);
 			return 3;
 		}
 		if( setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) ) {
-			printf("Could not set socket %d option for reusability: %m\n", sd);
+			printf("Could not set socket %d option for reusability:\n", sd);
 			close(sd);
 			return 4;
 		}
@@ -691,7 +694,7 @@ int upload_file(char* content, char* bound_end);
         int sd = *(unsigned int*)arg;
         efd = epoll_create(5);                     /* epoll descriptor */
 		if (efd < 0) {
-			printf("Could not create the epoll fd: %m");
+			printf("Could not create the epoll fd:");
 			close(efd);
 			return NULL;
 		}
@@ -709,29 +712,30 @@ int upload_file(char* content, char* bound_end);
 			 int n, i;
 			 printf("before epoll wait\n");
 			 n = epoll_wait(efd, events, MAXEVENTS, -1);
-			 for (i = 0; i < n; i++) {	
+			 for( i = 0; i < n; i++ ) {	
 				 //printf("%d\n", i);		 
-				  if ((events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP)|| (!(events[i].events & EPOLLIN))) {
+				  if( (events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP) || (!(events[i].events & EPOLLIN)) ) {
 					  /* An error has occured on this fd, or the socket is not
 						 ready for reading (why were we notified then?) */
-					  fprintf (stderr, "epoll error\n");
+					  fprintf(stderr, "epoll error\n");
 					  close (events[i].data.fd);
 					  continue;
 				  }	
 				  else if( (events[i].events & EPOLLIN) && (events[i].data.fd == sd) ) {
-								bzero(&clnt_addr, sizeof(clnt_addr));
+								memset(&clnt_addr, 0, sizeof(clnt_addr));
 								addrlen = sizeof(clnt_addr);
 								if( (ns = accept(sd,(struct sockaddr*)&clnt_addr, &addrlen)) == -1 ) { /* wait for client to connect */
-									  if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+									if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
 										  /* We have processed all incoming
 											 connections. */
-										  break;
-										}
-									  else {
-										  perror ("accept");
-										  break;
-										}
+										perror ("wouldblock");
+										break;
 									}
+									else {
+										perror ("accept");
+										break;
+									}
+								}
 								printf("accepted\n");
 								s = make_socket_non_blocking(ns);
 								if (s == -1)
@@ -745,39 +749,40 @@ int upload_file(char* content, char* bound_end);
 							} 
 							else {
 								    //int done = 0;
-								    ssize_t count;
-									char buf[1000000];
-									bzero(buf, sizeof(buf));		
-									while( (count = read(events[i].data.fd, buf, sizeof(buf))) > 0 ) {
-										printf("%s\n",buf);
-										content_type(buf);
-										char *f_name = parse_head_for_filename(buf);	       /*   1 */
-										if ( f_name != NULL) {
-											if (check_ext_type(f_name) == 1) {             /* 2 */
-												read_html_file(f_name, buf, events[i].data.fd);
-											}
-											else if( check_ext_type(f_name) == 0 ) {
-												read_media_file(f_name, buf, events[i].data.fd);
-											}
-											else if( check_ext_type(f_name) == 2 ) {
-												post p;
-												if( parse_for_method(buf) == 1) {					
-													parse_post_params(buf, &p);
+								ssize_t count;
+								char buf[8000000];
+								memset(buf, 0, sizeof(buf));	
+							    	
+								while( (count = read(events[i].data.fd, buf, sizeof(buf))) > 0 ) {
+									printf("%s\n",buf);
+								
+									content_type(buf);
+									char *f_name = parse_head_for_filename(buf);	       /*   1 */
+									if( f_name != NULL ) {
+										if( check_ext_type(f_name) == 1 ) {             /* 2 */
+											read_html_file(f_name, buf, events[i].data.fd);
+										}
+										else if( check_ext_type(f_name) == 0 ) {
+											read_media_file(f_name, buf, events[i].data.fd);
+										}
+										else if( check_ext_type(f_name) == 2 ) {
+											post p;
+											if( parse_for_method(buf) == 1) {					
+												parse_post_params(buf, &p);
 													//printf("Params: %s ", p.post_param);
-													php_cgi(buf, p.post_param, p.length, events[i].data.fd);
-												} 
-												else {
-													php_cgi(buf, NULL, 0, events[i].data.fd);
-												}		
-											}  
-											else if( check_ext_type(f_name) == 3 ) {
-												not_found(events[i].data.fd);				/* if erver will be support another file extensions then change it!!!!! */
-											}
-										} 
-										else close(events[i].data.fd);
-										bzero(buf, sizeof(buf));
-									}
-							  
+												php_cgi(buf, p.post_param, p.length, events[i].data.fd);
+											} 
+											else {
+												php_cgi(buf, NULL, 0, events[i].data.fd);
+											}		
+										}  
+										else if( check_ext_type(f_name) == 3 ) {
+											not_found(events[i].data.fd);				/* if erver will be support another file extensions then change it!!!!! */
+										}
+									} 
+									else close(events[i].data.fd);
+										memset(buf, 0, sizeof(buf));
+								} 
 	                   }
 			}    
         }
@@ -785,8 +790,7 @@ int upload_file(char* content, char* bound_end);
         close(sd);
     }
     
-    
-       
+ 
     void sig_handler(int sign)     /* signal handler */
     {
 		if ( sign == SIGINT ) {    /* catch Ctrl-C signal, to terminate server correctly with releasing socket descriptor */
