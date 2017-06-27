@@ -13,30 +13,9 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <pthread.h>
+#include "header.h"
 
-#define CONFIG_FILE "httpd.conf"
-#define MAXEVENTS 64
-#define FILE_SIZEBUFFER_LENGTH 9
 
-typedef struct {						/* structure to store POST body string and it's length */
-		char post_param[1024];
-		int length;
-    } post;
-    
-   
-void* thread_func(void* arg);
-int upload_file(char* content, char* fn, char* end);
-    static int PORT;
-    static char _ROOT_DIR_[256];
-    static char _PHP_CGI_[256];
-    static char _PHP_CGI_PATH_[256];
-    static char _FILE_UPLOAD_DIR_[256];
-	void sig_handler(int sign);    /* signal handler prototype function */
-	int nport, nbytes;
-    int on = 1;
-    int sd;
-	
-    
     void read_configuration() {
 		char buf[256];
 		int n_lines = 0;   								/* initial size */
@@ -57,30 +36,30 @@ int upload_file(char* content, char* fn, char* end);
 		/* now let's parse each string */
 		char *p;
 		for( i = 0; i <= n_lines; i++) {
-			
+
 			if( arg[i][0] == '#' ) continue;
-			if( (p = strstr(arg[i], "PORT")) != NULL ) {	
+			if( (p = strstr(arg[i], "PORT")) != NULL ) {
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					PORT = atoi(p);
 				}
 			}
-			if( (p = strstr(arg[i], "ROOT_DIR")) != NULL ) {	
+			if( (p = strstr(arg[i], "ROOT_DIR")) != NULL ) {
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					strcpy(_ROOT_DIR_, p);
 					p = strchr(_ROOT_DIR_, '\n');        /* remove EOL */
 					if( p != NULL ) *p = '\0';
 				}
-			}	
-			if( (p = strstr(arg[i], "PHP_CGI_FILE")) != NULL ) {	
+			}
+			if( (p = strstr(arg[i], "PHP_CGI_FILE")) != NULL ) {
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					strcpy(_PHP_CGI_, p);
 					p = strchr(_PHP_CGI_, '\n');        /* remove EOL */
 					if( p != NULL ) *p = '\0';
 				}
-			}	
+			}
 			if( (p = strstr(arg[i], "PHP_CGI_PATH")) != NULL ) {
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
@@ -88,28 +67,28 @@ int upload_file(char* content, char* fn, char* end);
 					p = strchr(_PHP_CGI_PATH_, '\n');        /* remove EOL */
 					if( p != NULL ) *p = '\0';
 				}
-			}	
-			if( (p = strstr(arg[i], "FILE_UPLOAD_DIR")) != NULL ) {	
+			}
+			if( (p = strstr(arg[i], "FILE_UPLOAD_DIR")) != NULL ) {
 				if( (p = strchr(arg[i], '=')) != NULL ) {
 					p++;
 					strcpy(_FILE_UPLOAD_DIR_, p);
 					p = strchr(_FILE_UPLOAD_DIR_, '\n');        /* remove EOL */
 					if( p != NULL ) *p = '\0';
 				}
-			}	
-				
+			}
+
 		}
-		
+
 		for( i = 0; i <= n_lines; i++)					/* free memory */
 			free(arg[i]);
 		fclose(f);
 	}
-    
+
     int content_type(char* header) {
 		char s_multipart[] = "multipart/form-data";
 		char s_bound[] = "boundary";
 		char s_filename[] = "filename";
-		char *boundary;    
+		char *boundary;
         char *upload_file_name;
 		char bound_begin[64];
 		char bound_end[64];
@@ -135,24 +114,24 @@ int upload_file(char* content, char* fn, char* end);
 		char *pfn = strstr(header, s_filename);
 		if( pfn != NULL ) {
 			pfn += sizeof(s_filename) + 1;
-		} 
+		}
 		else return 1;
 		while( *pfn != '"' ) {
 			*upload_file_name = *pfn;
 			upload_file_name++;
 			pfn++;
 		}
-	   
+
 		/****************getting file content**************/
 		strcpy(bound_begin, "--");
 		strcat(bound_begin, b);         /* ------boundary */
 		strcpy(bound_end, bound_begin);
 		strcat(bound_end, "--");      /* ------boundary-- */
-		
+
 		p = strstr(header, bound_begin);  /* begin of file header */
-	
+
 		for(; ;) {
-			if( *p == '\r' ) { 
+			if( *p == '\r' ) {
 				p += 2;
 				if( *p == '\r' ) {
 					p += 2;               /* now p --> points to beginning of file content */
@@ -163,7 +142,7 @@ int upload_file(char* content, char* fn, char* end);
 				p++;
 			}
 		}
-	
+
 		upload_file(p, fn, bound_end);
 		//printf("Boundary is: %s\n", b);
 		//printf("File name is: %s\n", fn);
@@ -172,15 +151,15 @@ int upload_file(char* content, char* fn, char* end);
 		free(b);
 		return 0;
 	}
-	
+
 	int upload_file(char* content, char* filename, char* end) {
 		char *p;
 		char full_path[256];
-		
+
 		strcpy(full_path, _FILE_UPLOAD_DIR_);
 		strcat(full_path, "/");
 		strcat(full_path, filename);
-		 
+
 		FILE* f = fopen(full_path, "w");
 		if( f == NULL ) {
 			perror("error creating file:");
@@ -189,7 +168,7 @@ int upload_file(char* content, char* fn, char* end);
 		p = content;
 
 		while( 1 ) {
-			if( *p == 0xD ) { 	
+			if( *p == 0xD ) {
 				p ++;
 				if( *p == 0xA ) {
 					p++;
@@ -206,14 +185,14 @@ int upload_file(char* content, char* fn, char* end);
 		fclose(f);
 		return 0;
 	}
-	
-    void not_found(int socket) {   
+
+    void not_found(int socket) {
 		char not_found[] = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 100\r\n\r\n \
-		<html><body><h1>404 Not found!</h1> </br> <h3>Sorry, required page doesn't exist!</h3></body></html>";	
+		<html><body><h1>404 Not found!</h1> </br> <h3>Sorry, required page doesn't exist!</h3></body></html>";
 		send(socket, not_found, sizeof(not_found), 0);
 		close(socket);
 	}
-	
+
 	int parse_for_method(char* header) {
 		char *p = strstr(header, "GET");
 		if( p != NULL ) return 0;
@@ -221,7 +200,7 @@ int upload_file(char* content, char* fn, char* end);
 		if( p != NULL ) return 1;
 		return -1;
 	}
-	
+
     char* parse_head_for_filename(char* header) {
 		char *p;
 		char *file_name = malloc(256);
@@ -250,17 +229,17 @@ int upload_file(char* content, char* fn, char* end);
 					*file_name = *p;
 					p++;
 					file_name++;
-				}			
+				}
 			}
-		}	
+		}
 		else { free(file_name); return NULL; }
 		if( strcmp(f, "") == 0 ) {					/* if start page is not specified in URL */
 			strcpy(f, "index.html");				/* default start page "index.html" as usual */
 		}
-		
+
 		return f;
 	}
-	
+
 	int check_ext_type(char* filename) {
 		char* p = filename;
 		char ext[8];
@@ -279,17 +258,17 @@ int upload_file(char* content, char* fn, char* end);
 		if( (strcmp(ext, "jpeg") && strcmp(ext, "jpg") && strcmp(ext, "png") && strcmp(ext, "gif") && strcmp(ext, "bmp")) == 0 ) {
 			return 0;    		/* 0 - pictures */
 		}
-		else if( (strcmp(ext, "txt") && strcmp(ext, "html") && strcmp(ext, "js") && strcmp(ext, "htm") && 
+		else if( (strcmp(ext, "txt") && strcmp(ext, "html") && strcmp(ext, "js") && strcmp(ext, "htm") &&
 								strcmp(ext, "xhtml") && strcmp(ext, "xml") ) == 0 ) {
 			return 1;   	 	/* 1 - txt and html files */
 		}
-		else if( strcmp(ext, "php") == 0 ) {			
+		else if( strcmp(ext, "php") == 0 ) {
 			return 2;			/* 2 - php scripts */
 		}
-		else 
+		else
 			return 3;			/* 3 - other */
 	}
-	
+
 	char* parse_for_contype(char* header) {
 		char *p;
 		char *connection_type = malloc(64);
@@ -300,7 +279,7 @@ int upload_file(char* content, char* fn, char* end);
 				while( *p != 32 ) {
 					p++;
 				}
-				while( *p != '\n' ) {		
+				while( *p != '\n' ) {
 					*con = *p;
 					p++;
 					con++;
@@ -309,7 +288,7 @@ int upload_file(char* content, char* fn, char* end);
 		else { free(connection_type); return NULL; }
 		return connection_type; 					/* connection typ: keep-alive or close */
 	}
-	
+
 	int file_size(char* filename) {
 		FILE * f;
 		int f_size = 0;
@@ -326,14 +305,14 @@ int upload_file(char* content, char* fn, char* end);
 		return f_size - 1;
 		free(filename);
 	}
-	
+
 	char* get_server_rootdir() {
 		char *path = malloc(1024);
 		memset(path, 0, 1024);
 		getcwd(path, 1024);
 		return path;
 	}
-	
+
 	void send_header(char *filename, int size, int socket) {
 		char length[FILE_SIZEBUFFER_LENGTH];
 		memset(length, 0, FILE_SIZEBUFFER_LENGTH);
@@ -343,21 +322,21 @@ int upload_file(char* content, char* fn, char* end);
 		sprintf(length, "%d", f_size);
 		char head_p1[] = "HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Type: text/html; charset=utf-8";
 		char head_p2[] = "\r\nContent-Length: ";
-		char head_p3[] = "\r\nConnection: keep-alive\r\n\r\n"; 
+		char head_p3[] = "\r\nConnection: keep-alive\r\n\r\n";
 		send(socket, head_p1, sizeof(head_p1), 0);
 		//printf("%s",head_p1);
 		strcat(head_p2, length);
 		int i = 0;
-		while( head_p2[i] != '\0' ) {      		/* count string size ( may be should to make separate function) */ 		
+		while( head_p2[i] != '\0' ) {      		/* count string size ( may be should to make separate function) */
 			i++;
 		}
 		send(socket, head_p2, i, 0);
-		//printf("%s",head_p2);	
+		//printf("%s",head_p2);
 		send(socket, head_p3, sizeof(head_p3) - 1, 0);
 		//printf("%s",head_p3);
-		//free(filename);	
+		//free(filename);
 	}
-	
+
 	char* remove_phpcgi_header(char* response) {
 		/* Remove "Content-type: text/html; charset=UTF-8" string
 		 * in the response of php-cgi, as it goes first before the usful result */
@@ -371,9 +350,9 @@ int upload_file(char* content, char* fn, char* end);
 			 p++;
 		 }
 		 p++; 									/* now p -> points to beginning of result */
-		 return p;	 
+		 return p;
 	}
-	
+
 	int php_cgi(char *header, char* post_param, int length, int socket) {
 												/* example */
 												/* GET /submit.php?login=hello+world HTTP/1.1 */
@@ -399,14 +378,14 @@ int upload_file(char* content, char* fn, char* end);
 			p++;
 			i = 0;
 			while( *p != 32 ) {
-				parameter[i] = *p;		
-				p++;		
+				parameter[i] = *p;
+				p++;
 				i++;
 			}
 		}
 		else {
 			strcpy(parameter, "");   	/* if there are no parameters, pass an empty string instead */
-		}					
+		}
 		strcpy(full_filename, _ROOT_DIR_ /*get_rootdir()*/);    /* do not forget to FREE memory */
 		strcat(full_filename, "/");
 		strcat(full_filename, parse_head_for_filename(header));
@@ -417,28 +396,28 @@ int upload_file(char* content, char* fn, char* end);
 			not_found(socket);
 			return -1;
 		}
-		sprintf(s_length, "%d", length);	
+		sprintf(s_length, "%d", length);
 		strcpy(query_string, "QUERY_STRING=");
 		if( post_param == NULL) {
 			strcat(query_string, parameter);
-		} 
+		}
 		strcpy(script_filename, "SCRIPT_FILENAME=");
 		strcat(script_filename, full_filename);
 		int fd[2], fd2[2];              						/* fd - pipe for output of result by php-cgi,*/
 		if( (pipe(fd) != 0) || (pipe(fd2) != 0) )				/* fd2 - pipe for output of errors */
-			printf("pipes creation error!\n");							
+			printf("pipes creation error!\n");
 		if( (pid = fork()) != -1 ) {
 			if( pid == 0 ) {
 				dup2(fd[1], STDOUT_FILENO);						/* redirect stdout to --> pipe write */
 				dup2(fd2[1], STDERR_FILENO);					/* redirect stderr to --> pipe write */
-				               		/* if we call .php script with global POST and GET vars, then set environment's vars */ 
-			    
+				               		/* if we call .php script with global POST and GET vars, then set environment's vars */
+
 				if( parse_for_method(header) ) {
 					    strcpy(cgi_script, get_server_rootdir());
 					    strcat(cgi_script, "/cgi.sh");
-						if( -1 == execl(cgi_script, "cgi.sh", post_param, s_length, "POST", full_filename, _PHP_CGI_PATH_, 
+						if( -1 == execl(cgi_script, "cgi.sh", post_param, s_length, "POST", full_filename, _PHP_CGI_PATH_,
 													(char*)NULL)) /* calling php-cgi process */
-					       perror("execl error: ");	
+					       perror("execl error: ");
 					}
 					else {
 						putenv("GATEWAY_INTERFACE=CGI/1.1");    /* setting environment variables for php-cgi to work ( GET method ) */
@@ -450,12 +429,12 @@ int upload_file(char* content, char* fn, char* end);
 						putenv("HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 						putenv("CONTENT_TYPE=application/x-www-form-urlencoded");
 						if( -1 == execl(_PHP_CGI_PATH_, _PHP_CGI_,  (char*)NULL))   /* calling php-cgi process */
-							perror("execl error: ");	
-				}	
+							perror("execl error: ");
+				}
 				close(fd[1]);
-				close(fd[0]);				
+				close(fd[0]);
 				close(fd2[1]);
-				close(fd2[0]);							
+				close(fd2[0]);
 			}
 			else {												/* parent process */
 				close(fd[1]);
@@ -469,12 +448,12 @@ int upload_file(char* content, char* fn, char* end);
 				}
 				char *p = mem;
 				char *p_f = mem;
-				memset(mem, 0, 1000000);	
+				memset(mem, 0, 1000000);
 				while( (n = read(fd[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
 					i++;
-				}		
+				}
 				while( (n = read(fd2[0], buf, 1)) > 0 ) { 		/* reading result from pipe --> memory */
 					*mem = *buf;
 					mem++;
@@ -483,7 +462,7 @@ int upload_file(char* content, char* fn, char* end);
 			    waitpid(-1, &status, 0);						/* wait for child process (php-cgi) to terminate */
 				if ( (p = remove_phpcgi_header(p)) != NULL ) {
 					i -= 38;
-					send_header(filename, i, socket);			/* send header */									
+					send_header(filename, i, socket);			/* send header */
 					while( i != 0 ) {
 						send(socket, p, 1, 0);		     		/* send result one-by-one to browser */
 						p++;
@@ -499,7 +478,7 @@ int upload_file(char* content, char* fn, char* end);
 						i--;
 					}
 				}
-				free(p_f);				
+				free(p_f);
 				close(fd[0]);
 				close(fd2[0]);
 			}
@@ -510,7 +489,7 @@ int upload_file(char* content, char* fn, char* end);
 		}
 		return 0;
 	}
-		
+
 	int read_media_file(char* filename, char* header, int socket) {
 		FILE* f;
 		f = fopen(filename, "rb");
@@ -518,32 +497,32 @@ int upload_file(char* content, char* fn, char* end);
 			not_found(socket);
 			return 1;
 		}
-		char length[FILE_SIZEBUFFER_LENGTH];	
+		char length[FILE_SIZEBUFFER_LENGTH];
 		memset(length, 0, FILE_SIZEBUFFER_LENGTH);
 		int f_size = file_size(filename);
 		sprintf(length, "%d", f_size);//image/jpeg
 		char head_p1[] = "HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Type: image/jpeg";
 		char head_p2[] = "\r\nContent-Length: ";
-		char head_p3[] = "\r\nConnection: close\r\n\r\n"; 
+		char head_p3[] = "\r\nConnection: close\r\n\r\n";
 		send(socket, head_p1, sizeof(head_p1), 0);
 		printf("%s",head_p1);
 		strcat(head_p2, length);
 		int i = 0;
-		while( head_p2[i] != '\0' ) {	
+		while( head_p2[i] != '\0' ) {
 			i++;
 		}
 		send(socket, head_p2, i, 0);
-		printf("%s",head_p2);	
+		printf("%s",head_p2);
 		send(socket, head_p3, sizeof(head_p3) - 1, 0);
-		printf("%s",head_p3);		
+		printf("%s",head_p3);
 		char *buf = malloc(1);
 		memset(buf, 0, 1);
 		int n;
-		while ( (n = fread(buf, 1, 1, f)) > 0  ) {			
+		while ( (n = fread(buf, 1, 1, f)) > 0  ) {
 			if( send(socket, buf, n, 0) == -1 )
 				printf("%s","Error sending file!!");
 			memset(buf, 0, 1);
-		} 
+		}
 		fclose(f);
 		free(buf);
 		if( strcmp(parse_for_contype(header), "close") == 0 ) {
@@ -552,8 +531,8 @@ int upload_file(char* content, char* fn, char* end);
 		free(filename);
 		return 0;
 	}
-	
-	
+
+
 	int read_html_file(char* filename, char* header, int socket) {
 		FILE* f;
 		f = fopen(filename, "r");
@@ -565,20 +544,20 @@ int upload_file(char* content, char* fn, char* end);
 		char *buf = malloc(1);
 		memset(buf, 0, 1);
 		int n;
-		while ( (n = fread(buf, 1, 1, f)) > 0  ) {			
+		while ( (n = fread(buf, 1, 1, f)) > 0  ) {
 			if( send(socket, buf, n, 0) == -1 )
 				printf("%s","Error sending file!!");
 			memset(buf, 0, 1);
-		} 
+		}
 		fclose(f);
-		free(buf);	
-		free(filename);	
+		free(buf);
+		free(filename);
 		if( strcmp(parse_for_contype(header), "close") == 0 ) {
 			close(socket);
 		}
 		return 0;
 	}
-		
+
     static int make_socket_non_blocking (int sfd)
 	{
 		int flags, s;
@@ -595,7 +574,7 @@ int upload_file(char* content, char* fn, char* end);
 		}
 		return 0;
 	}
-	
+
 	void parse_post_params(char* header, post* p) {  /* takes POST response-header from client as a parameter, parses header, */
 		int i = 0;							/* extracts body and Content-Length */
 		char *ar[32];
@@ -604,7 +583,7 @@ int upload_file(char* content, char* fn, char* end);
 		for( i = 0; i <= 32; i++ ) {
 			ar[i] = malloc(1024);
 			do  {
-				
+
 				ar[i][j] = *c;
 				if( ar[i][0] == '\r' ) { c++; flag = 1; break; }
 				c++;
@@ -612,33 +591,33 @@ int upload_file(char* content, char* fn, char* end);
 			} while( *c != 10 );
 			c++;
 			j = 0;
-			if( flag ) { strcpy(p->post_param, c); break;}	
+			if( flag ) { strcpy(p->post_param, c); break;}
 		}
-	
+
 		for( i = 0; i <= 32; i++ ) {
 			if( strstr(ar[i], "Content-Length:") != NULL ) {
 				c = strchr(ar[i], 32);
 				c++;
 				int n = atoi(c);
 				p->length = n;
-				//printf("%d\n", n); 
+				//printf("%d\n", n);
 				break;
-			}		
-		}	
-	}	
-    
+			}
+		}
+	}
+
     int main(int argc, char* argv[]) {
         read_configuration();
         pthread_t thread_1, thread_2;
         pthread_attr_t attr;
         //nport = atoi("127.0.0.1");						/* get number of port from command line as a parameter  */
-											
+
         struct sockaddr_in6 serv_addr;
         struct hostent;
         memset(&serv_addr, 0, sizeof(serv_addr));
         serv_addr.sin6_family = AF_INET6; 						/* support ipv6 */
         //serv_addr.sin_addr.s_addr = INADDR_ANY; 				/* only for ipv4 */
-        serv_addr.sin6_addr = in6addr_any; 
+        serv_addr.sin6_addr = in6addr_any;
         serv_addr.sin6_port = htons(PORT);
         serv_addr.sin6_scope_id = 5;
         if( (sd = socket(AF_INET6, SOCK_STREAM, 0)) == -1 ) {	/* AF_INET6 socket is supported, compatible with ipv4 */
@@ -655,20 +634,20 @@ int upload_file(char* content, char* fn, char* end);
 			close(sd);
 			return 4;
 		}
-        
+
         if( bind(sd,(struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1  ) {
-            perror("error calling bind()"); 
+            perror("error calling bind()");
             close(sd);
             exit(EXIT_FAILURE);
         }
         printf("Server is ready, waiting fo connection...\n");   /* send ready prompt to the client */
         if( listen(sd, 50) == -1 ) {
-            perror("error calling listen()"); 
+            perror("error calling listen()");
             close(sd);
             exit(EXIT_FAILURE);
         }
-       
-        signal(SIGINT, sig_handler); 				/* set signal handler */     
+
+        signal(SIGINT, sig_handler); 				/* set signal handler */
         pthread_attr_init(&attr);
         int ret = pthread_create(&thread_1, &attr, &thread_func, &sd);
         if( ret != 0 ) {
@@ -682,9 +661,9 @@ int upload_file(char* content, char* fn, char* end);
 		}
 		pthread_join(thread_1, NULL);
 		pthread_join(thread_2, NULL);
-		 
+
 	 }
-	 
+
 	void* thread_func(void* arg) {
 		int ns, efd;
 		struct epoll_event event;
@@ -707,20 +686,20 @@ int upload_file(char* content, char* fn, char* end);
 			  exit(1);
 		 }
          events = calloc(MAXEVENTS, sizeof event);         /* memory for events */
-         while( 1 ) {	
-				 						/* eternal loop for accept client's connections */    
+         while( 1 ) {
+				 						/* eternal loop for accept client's connections */
 			 int n, i;
 			 printf("before epoll wait\n");
 			 n = epoll_wait(efd, events, MAXEVENTS, -1);
-			 for( i = 0; i < n; i++ ) {	
-				 //printf("%d\n", i);		 
+			 for( i = 0; i < n; i++ ) {
+				 //printf("%d\n", i);
 				  if( (events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP) || (!(events[i].events & EPOLLIN)) ) {
 					  /* An error has occured on this fd, or the socket is not
 						 ready for reading (why were we notified then?) */
 					  fprintf(stderr, "epoll error\n");
 					  close (events[i].data.fd);
 					  continue;
-				  }	
+				  }
 				  else if( (events[i].events & EPOLLIN) && (events[i].data.fd == sd) ) {
 								memset(&clnt_addr, 0, sizeof(clnt_addr));
 								addrlen = sizeof(clnt_addr);
@@ -744,18 +723,18 @@ int upload_file(char* content, char* fn, char* end);
 								event.data.fd = ns;
 								if (epoll_ctl(efd, EPOLL_CTL_ADD, ns, &event) < 0) {
 									  printf("Couldn't add client socket to epoll set:\n");
-									  exit(1);      
+									  exit(1);
 								}
-							} 
+							}
 							else {
 								    //int done = 0;
 								ssize_t count;
 								char buf[8000000];
-								memset(buf, 0, sizeof(buf));	
-							    	
+								memset(buf, 0, sizeof(buf));
+
 								while( (count = read(events[i].data.fd, buf, sizeof(buf))) > 0 ) {
 									printf("%s\n",buf);
-								
+
 									content_type(buf);
 									char *f_name = parse_head_for_filename(buf);	       /*   1 */
 									if( f_name != NULL ) {
@@ -767,30 +746,30 @@ int upload_file(char* content, char* fn, char* end);
 										}
 										else if( check_ext_type(f_name) == 2 ) {
 											post p;
-											if( parse_for_method(buf) == 1) {					
+											if( parse_for_method(buf) == 1) {
 												parse_post_params(buf, &p);
 													//printf("Params: %s ", p.post_param);
 												php_cgi(buf, p.post_param, p.length, events[i].data.fd);
-											} 
+											}
 											else {
 												php_cgi(buf, NULL, 0, events[i].data.fd);
-											}		
-										}  
+											}
+										}
 										else if( check_ext_type(f_name) == 3 ) {
 											not_found(events[i].data.fd);				/* if erver will be support another file extensions then change it!!!!! */
 										}
-									} 
+									}
 									else close(events[i].data.fd);
 										memset(buf, 0, sizeof(buf));
-								} 
+								}
 	                   }
-			}    
+			}
         }
         //free(events);
         close(sd);
     }
-    
- 
+
+
     void sig_handler(int sign)     /* signal handler */
     {
 		if ( sign == SIGINT ) {    /* catch Ctrl-C signal, to terminate server correctly with releasing socket descriptor */
